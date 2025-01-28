@@ -1,11 +1,21 @@
-# Prima: General-Purpose Brain MRI Vision Language Model trained on Health System-scale Data
 
+
+# Prima: General-Purpose Brain MRI Vision Language Model trained on Health System-scale Data 
+
+<img src="https://github.com/user-attachments/assets/7028090e-dfbf-4358-b99c-3240a1918e87" width="300px" align="right" />
 
 
 This is the official code repository for paper submission "Learning neuroimaging models from health system-scale data", where we introduced Prima, the first general-purpose MRI VLM trained on health system-scale data. [Demo Website](https://prima.mlins.org)
 
 ```
 Preprint coming soon!
+-----
+Placeholder for bibtex
+Placeholder for bibtex
+Placeholder for bibtex
+Placeholder for bibtex
+Placeholder for bibtex
+-----
 ```
 
 ## Overview
