@@ -1,4 +1,4 @@
-# Prima: general-purpose Brain MRI Vision-Language Model trained on health system-scale data
+# Prima: General-Purpose Brain MRI Vision Language Model trained on Health System-scale Data
 
 
 
