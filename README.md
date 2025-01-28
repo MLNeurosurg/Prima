@@ -1,4 +1,4 @@
-# Prima: general-purpose MRI VLM trained on health system-scale data
+# Prima: general-purpose Brain MRI Vision-Language Model trained on health system-scale data
 
 
 
