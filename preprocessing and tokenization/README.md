@@ -1,10 +1,7 @@
-# PRIMA Overview
+# PRIMA Volumetric Tokenization
+![Ext_Data_Fig4_v2 (1)](https://github.com/user-attachments/assets/3488e6db-4bc9-422e-99cb-5027a0e80e90)
 
-
-![1738022426126-795fc098-7897-47f6-941d-8724d4c5638a_1](https://github.com/user-attachments/assets/be841dcb-a446-4e00-b33d-17901c78557f)
-
-
-Over 220,000 brain MRIs were queried from our health system's picture archiving and communication system (PACS), forming the UM220K dataset. This dataset includes MRI studies from multiple medical centers across the state and the United States. The distribution of MRI counts by county and state is presented. The number of MRIs archived in the PACS system has doubled approximately every six years over the past two decades, highlighting the growing demands on radiology and clinical services. The diagnostic categories reflect the standard operations of a large academic medical center. Prima was trained using a contrastive language-image pre-training (CLIP) framework and a hierarchical vision transformer (ViT) architecture. Full MRI studies were divided into subvolumes, compressed into volume tokens using a tokenizer, and processed by a sequence ViT to extract sequence-level features. Global sequence registers were passed to a study ViT to generate a study-level representation for alignment with radiology reports. Radiology reports were summarized using a large language model (LLM), and a pre-trained neuroradiology language model generated report representations. Finally, the MRI study embeddings and summarized report embeddings were aligned using a CLIP objective.
+MRI scanners acquire images with specified orientations (e.g. LAS, RAS, etc) and planes (e.g. axial, coronal, sagittal). The MRI tokens will have the same orientation and plane as the source MRI sequence after patching. Examples of VQ-VAE reconstructions in different MRI sequences and orientations. Because Prima takes as input multiple different orientations and imaging planes, the volume tokenizer should be orientation invariant, meaning the representation of the same anatomic region should not change if imaged in axial versus coronal plane or LAS versus RAS orientation, for example. We used two strategies: random orientation permutations and 3D-CNN encoders. Our VQ-VAE volume tokenizer is encouraged to encode each volume token equivalently across all orientations under a reconstruction loss. Examples of MRI subvolumes are shown in different orientations after permutation. The latent volume tokens with near-equivalent latent encodings are shown in the center panel. with the reconstructions after the decoder on the right. Ablation study over the codebook sizes shows the quantization loss validation curves. Larger codebook sizes led to less overfitting and better reconstructions. Reconstruction losses with and without random orientation permutations. Random permutations regularized the VQ-VAE and resulted in higher-quality reconstructions and lower reconstruction losses. Examples of reconstructions before and after orientation permutations for different MRI sequences. Reconstructions are perceptually equivalent after forward pass through the VQ-VAE model regardless of orientation or imaging plane. Subtle reconstruction differences can be seen on difference maps.
 
 
 # Preprocessing and Tokenization Overview
@@ -18,12 +15,26 @@ The initial step in PRIMA's development and implementation consists of MRI prepr
 
 # VQVAE Training and Evaluation
 
-TODO
-- [config_parameters]
-- [short train/val code lines]
-- [include line on permutation]
+Training Details
+- The VolumeDataModule in `/datasets/mrdataset.py` creates batches of image sub-volumes with randomized shapes
+- Additional random batch permutation is conducted during training in `/train/train_vqvae.py`
 
+Training Steps
+1. Access or update parameters in config file `/configs/train_vqvae_params.yaml`
+2. Change directory to train and activate conda environment
+3. Run `train_vqvae.py` to train/validate VQVAE model
+   ```
+   python train_vqvae.py -c=/configs/train_vqvae_params.yaml
+   ```
 
+Evaluation
+1. Access parameters and specify model checkpoint in `/configs/eval_vqvae_params.yaml`
+2. Change directory to train and activate conda environment
+3. Run `eval_vqvae.py` to evaluate a pretrained VQVAE model
+   ```
+   python eval_vqvae.py -c=/configs/eval_vqvae_params.yaml
+   ```
+   
 # VQVAE Inference
 
 
