@@ -67,7 +67,7 @@ def main(params, data_module):
         upsample_parameters = params["upsample_parameters"],
         num_channels          = params["num_channels"],
         num_res_channels      = params["num_res_channels"],
-        num_embeddings = params["num_embeddings"], # 8192
+        num_embeddings = params["num_embeddings"],
         embedding_dim  = params["embedding_dim"],
     )
     vqvae_model = vqvae_model.to(device)
@@ -75,9 +75,9 @@ def main(params, data_module):
     optimizer = torch.optim.Adam(params=vqvae_model.parameters(), lr=1e-4)
     l1_loss = nn.L1Loss()
     
-    n_epochs       = params["n_epochs"]       # 1 epoch = 16k mini-batches (275k dataset with bs=16)
-    val_interval   = 200 #params["val_interval"]   # every 1,000 mini-batches save model and statistics
-    train_interval = 200 #params["train_interval"] # every 1% mini-batches save training losses
+    n_epochs       = params["n_epochs"]
+    val_interval   = 200 # every 200 mini-batches save model and statistics
+    train_interval = 200
 
     interval_train_recons_loss_list = []
     interval_valid_recons_loss_list = []
@@ -94,8 +94,9 @@ def main(params, data_module):
         total_step = get_step(checkpoints[-1]) + 1
     else:
         total_step = 0
+
     #initialize wandb library
-    wandb.init(project='tokmr', entity = 'eharakej')
+    wandb.init(project='<project name>', entity = '<username>')
                 
     total_start = time.time()
     #total_step = get_step(checkpoints[-1]) + 1
@@ -107,26 +108,21 @@ def main(params, data_module):
         
         vqvae_model.train()
 
-        #subset_indices = torch.randperm(len(train_ds))[:train_subset_size]
-        #subset_sampler = SubsetRandomSampler(subset_indices)
-        #subset_loader = DataLoader(train_ds, batch_size=bs, collate_fn=pad_list_data_collate, sampler=subset_sampler,
-        #                   num_workers = 4)
-
         interval_train_recons_loss = 0
         interval_train_quant_loss = 0
 
         for step, batch in tqdm(enumerate(train_loader)):
             
             images = batch.to(device)
-            #axes = [2, 3, 4]  
-            #random.shuffle(axes)
-            #images_t = images.permute(0, 1, *axes)
+            axes = [2, 3, 4]  
+            random.shuffle(axes)
+            images_t = images.permute(0, 1, *axes)
             optimizer.zero_grad(set_to_none=True)
 
             # model outputs reconstruction and the quantization error
-            reconstruction, quantization_loss = vqvae_model(images=images)
+            reconstruction, quantization_loss = vqvae_model(images=images_t)
             
-            recons_loss = l1_loss(reconstruction.float(), images.float())
+            recons_loss = l1_loss(reconstruction.float(), images_t.float())
 
             loss = recons_loss + quantization_loss
 
@@ -173,11 +169,6 @@ def main(params, data_module):
                 recon_val_loss = 0
                 quant_val_loss = 0
 
-                #subset_indices_val = torch.randperm(len(valid_ds))[:val_subset_size]
-                #subset_sampler_val = SubsetRandomSampler(subset_indices_val)
-                #subset_loader_val = DataLoader(valid_ds, batch_size=bs, collate_fn=pad_list_data_collate, sampler=subset_sampler_val,
-                #           num_workers = 4)
-                
                 with torch.no_grad():
                 
                     torch.save(
