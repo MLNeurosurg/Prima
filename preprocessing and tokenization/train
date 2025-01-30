@@ -2,21 +2,23 @@ from pathlib import Path
 import random
 import time
 import pandas as pd
+import numpy as np
+
+import sys
+import os
+import yaml
+import re
+from tqdm import tqdm
+
 from generative.networks.nets import VQVAE
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from sklearn.model_selection import train_test_split
 from torchmr.data.mrdataset import VolumeDataModule
-import sys
-import os
-import json
 import torch
 import torch.nn as nn
 import wandb
-from tqdm import tqdm
-import numpy as np
-import re
 
 def alphanum_key(s):
     # Split the string into a list of numbers and non-number parts
@@ -253,22 +255,18 @@ if __name__ == "__main__":
    
     set_seed(42)
 
-    
-    with open('/nfs/turbo/umms-tocho-snr/exp/eharakej/TOKEN-MODEL-8-32-32_ablation_4096_2024-10-02-1322PM/params.json', 'r') as f:
-        params=json.load(f)
+    # read in config file with VQVAE model parameters
+    with open('/model_run/train_vqvae_params.yaml', 'r') as f:
+        params=yaml.safe_load(f)
 
     patch_cat = params['patch_size'][1]
-    print(f'patch greatest dimension: {patch_cat}')
     
-    print('hello')
-    mr_df = pd.read_csv('/nfs/mm-isilon/brainscans/dropbox/data/neurovision/mr_dataset_summary_without_size.csv')
-    #ct_df = pd.read_csv('/nfs/turbo/umms-tocho/code/achowdur/repos/mri_etl/data/ct_dataset_summary_without_size.csv')
+    mr_df = pd.read_csv('/path/to/mri_data')
 
-    # combine and shuffle the data
-    #data = pd.concat([mr_df, ct_df], ignore_index=True)
     # create a train test split
     train_data, val_data = train_test_split(mr_df, test_size=0.2, shuffle= True)
 
+    # store validation set for future inferencing
     val_data.to_csv(f'{PATH_CUR}/val_dataset.csv')
 
     data_module = VolumeDataModule(train_data,
