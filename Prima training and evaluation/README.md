@@ -15,7 +15,7 @@ Due to privacy policies, we are not allowed to share any raw patient imaging dat
 python generate_fake_data.py
 ```
 
-We go over the detailed data structure below, in case you want to replicate our scripts with your own real data. If you simply wish to run our scripts on the generated fake data, you can skip to the remaining of this section and go directly to the training section.
+We go over the detailed data structure below, in case you want to replicate our scripts with your own real data. If you simply wish to run our scripts on the generated fake data, you can skip to the remaining of this section and go directly to the [training section](https://github.com/MLNeurosurg/Prima/edit/main/Prima%20training%20and%20evaluation/README.md#clip-training).
 
 ### Tokenized data format
 
@@ -92,4 +92,6 @@ The entire "OtsuThresholds" is used to remove tokens that are mostly empty from 
 ### Data Json
 
 The tokenized data information above needs to be summarized in a json file, e.g. `fake_data/datajson.json`. The format of this json file needs to be the following:
+
+## CLIP Training
 
