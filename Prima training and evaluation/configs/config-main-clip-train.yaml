@@ -1,0 +1,57 @@
+data: # data configuration
+        in_dim: 259 # individual token dimension + orientation dimension (256+3)
+        d: 30   # positional encoding size
+        text_max_tokens: 200 # max text token allowed
+        batch_size: 8 # batch size per cumbatch
+        tokenizer: 'biomed' # text tokenizer for CLIP text model
+        datajson: 'fake_data/datajson.json' # the datajson file storing details of each study and sequence
+        datarootdir: 'fake_data/data' # root dir of where the data is stored
+        vqvaename: 'FAKE_TOKENIZER' # name of the VQ-VAE
+        reportcsv: 'fake_data/shortenedreports.csv' # csv for summarized reports
+        percentage: 5
+        upsample_abnormal: 3
+model: # model configuration
+        feature_dim: 128
+        text:
+                type: gpt2
+                #ckpt_path: ../finetuned_gpt2_radiology_75/  # use this if you have a pre-trained language model you want to load in instead
+        visual:
+                type: hiervit
+                inner:
+                        depth: 15
+                        heads: 16
+                        mlp_dim: 1024
+                        dim_head: 64
+                        num_classes: 1024
+                        clsnum: 20
+                outer: 
+                        dim: 1024
+                        depth: 4
+                        heads: 8
+                        mlp_dim: 1024
+                        dim_head: 64
+                        num_classes: 128
+                        clsnum: 10
+                useseriename: true # whether to use sequence name
+                usestudydescription: true # whether to use study description
+                serie_encoder_ckpt: serieclip_ckpts/last.pt # use this if you want to load in a pre-trained serie name encoder
+train: # training configurations
+        optimizer: 'adam' # optimizer type
+        learning_rate: 0.000002 # learning rate
+        weight_decay: 0.0001 # weight decay
+        devices: [0] # GPUs 
+        epochs: 1000 # total number of epochs
+        ckptsavedir: ckpts/ # location to store training checkpoints
+        series_dropout_rate: 0.08 # chance of dropping out each sequence entirely
+        split_finding_rate: 1.0 # chance of doing finding split for long reports
+        warmup: 200 # number of initial warmup steps, with lower learning rate
+        num_train_loader_workers: 7
+        num_val_loader_workers: 1
+        early_stop_step: 1008 # number of training steps in an epoch
+        token_dropout: 0.03 # chance to drop out each volume token
+        cumbatchnum: 2 # batch cumulation for larger effective CLIP batch size
+        init_temperature: 0.07 # initial CLIP temperature
+        seriename_dropout: 0.07 # chance of replacing sequence name with "unk"
+        patient_series_discrimination: 0.03 # patient discrimination loss weight wrt CLIP objective
+        patdis_init_temperature: 0.1 # initial patient discrimination objective temperature
+        checkgradnan: true # ensure that no nan gradient is passed back

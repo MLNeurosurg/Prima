@@ -1,0 +1,10 @@
+data:
+        batch_size: 32
+        datajson: 'fake_data/datajson-prospective.json' # the datajson file storing details of each study and sequence
+        datarootdir: 'fake_data/data' # root dir of where the data is stored
+        vqvaename: 'FAKE_TOKENIZER' # name of the VQ-VAE
+        percentage: 5
+        nosplit: true
+eval:
+        ckpt:  ckpts/last.pt
+        evalset: 'fake_data/prospective-config.json'
