@@ -14,6 +14,7 @@ Due to privacy policies, we are not allowed to share any raw patient imaging dat
 ```
 python generate_fake_data.py
 ```
+The script will automatically generate 2000 fake studies as retrospective training set and another 2000 fake studies as prospective test set. It also generates fake labels and fake summarized reports.
 
 We go over the detailed data structure below, in case you want to replicate our scripts with your own real data. If you simply wish to run our scripts on the generated fake data, you can skip to the remaining of this section and go directly to the [training section](https://github.com/MLNeurosurg/Prima/tree/main/Prima%20training%20and%20evaluation#clip-training).
 
@@ -92,6 +93,26 @@ The entire "OtsuThresholds" is used to remove tokens that are mostly empty from 
 ### Data Json
 
 The tokenized data information above needs to be summarized in a json file, e.g. `fake_data/datajson.json`. The format of this json file needs to be the following:
+```
+[
+    [
+        "<path to study data folder>",
+        [
+            ["<name of sequence 1>", [0,0,0,0,0,0]], (the 6 numbers at the end are deprecated and not used, but needs to be there to preserve the structure)
+            ["<name of sequence 2>", [0,0,0,0,0,0]],
+            ...
+        ],
+        "<full unsummarized radiology report of study>",
+        "<study description>"
+    ],
+    ...
+]
+```
+The training program will load in this data json file to determine what studies to include in the training. We generate a data json for training set and another one for prospective test set.
+
+### Data Labels
+
+For each of the 52 classification tasks, we need to have labels for each study. We provide the list of positive studies for each label in a `txt` file, where each row is the name of one positive study. We provide the label txts of the fake training set in `fake_data/retrospective_classification` and the prospective set in `fake_data/prospective_classification`.
 
 ## CLIP Training
 
