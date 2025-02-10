@@ -6,7 +6,9 @@ In this directory, we include scripts for replicating our main CLIP training pro
 
 Please note that the scripts in this directory assumes that the raw data has already been processed and tokenized through VQ-VAE tokenizer (see `preprocessing and tokenization` directory for details and scripts for doing this step). 
 
-Please also note that scripts in this directory should be run with this directory as working directory.
+The scripts in this directory should be run with this directory as working directory.
+
+Note: "MRI Sequence" and "MRI series" are interchangeable terms in describing one entire 3D volume of MRI scan. We consistently used "sequence" in the paper, but the terms are mixed in the code repository (especially in variable namings). 
 
 ## Data preparation
 
@@ -114,5 +116,52 @@ The training program will load in this data json file to determine what studies 
 
 For each of the 52 classification tasks, we need to have labels for each study. We provide the list of positive studies for each label in a `txt` file, where each row is the name of one positive study. We provide the label txts of the fake training set in `fake_data/retrospective_classification` and the prospective set in `fake_data/prospective_classification`.
 
+### Summarized reports
+
+The summarized reports should be stored in a csv with two columns, the first being the name of the study and the second being the shortened report. See `fake_data/shortenedreports.csv` for example.
+
 ## CLIP Training
 
+### (Optional) Sequence name encoder CLIP pretraining
+
+To perform CLIP pre-training for the sequence name encoder, use the following command:
+
+```
+python seriename_clip.py --config configs/config-seriename-clip.yaml
+```
+
+You can modify training configurations in `configs/config-seriename-clip.yaml`. The resulting checkpoints should be in `serieclip_ckpts` folder unless you changed the ckpt save location in the config.
+
+### Main CLIP training
+
+If you have skipped the optional sequence name encoder CLIP pretraining, please comment out line 37 in `configs/config-main-clip-train.yaml` to not include a pre-trained sequence name encoder.
+
+To perform main CLIP training, use the following command:
+
+```
+python clip_main.py --config configs/config-main-clip-train.yaml
+```
+
+You can modify training configuration in `configs/config-main-clip-train.yaml`. Follow the comments in the config file for guidance. The resulting checkpoints should be in `ckpts/` folder unless you changed the ckpt save location in the config.
+
+### Downstream Classification Evaluation
+
+To train and validate classification heads for downstream classification tasks, run the following command:
+
+```
+python classification_altogether.py --config configs/config-classification-head-train.yaml
+```
+
+By default it will use `ckpts/last.pt` as the visual encoder. The script will save a set of best checkpoints for each individual task for prospective evaluation.
+
+To perform evaluation on the prospective test set, run the following command:
+
+```
+python eval_prospective_classification.py --config configs/config-prospective-classification.yaml
+```
+
+You can specify which head checkpoints you want to use in `configs/jsons/prospective_eval.json`.
+
+## LIME visualization
+
+To run LIME visualization on a specific datapoint for a checkpoint on a certain task, you can use `lime_visualization.ipynb`. It will generate a json file that contains the LIME importance score of each volume token, in the same order as the tokens are listed in `stacked.pt`.
