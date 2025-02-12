@@ -1,0 +1,46 @@
+# Seed
+seed: 42
+
+# Paths configuration
+paths:
+  tocho: "./"
+  proj: "exp"
+  current: "TOKEN-MODEL-8-32-32_ablation_4096_2024-10-02-1322PM"
+
+# WandB configuration
+wandb:
+  project: "<project name>"
+  entity: "<username>"
+
+# Data configuration
+data:
+  mri_csv_path: "./mri_data.csv"
+  test_size: 0.2
+  patch_cat: 64
+  batch_size: 64
+  token_limit: 1600
+  gpus: 1
+  num_workers: 8
+
+# Model configuration (VQVAE parameters)
+model:
+  spatial_dims: 3
+  in_channels: 1
+  out_channels: 1
+  num_res_layers: 2
+  downsample_parameters: [[2,4,1,1],[2,4,1,1]] 
+  upsample_parameters: [[2,4,1,1,0],[2,4,1,1,0]] 
+  num_channels: [256,256]
+  num_res_channels: [256,256]
+  num_embeddings: 4096
+  embedding_dim: 4
+
+# Optimizer configuration
+optimizer:
+  lr: 1e-4
+
+# Training parameters
+train:
+  n_epochs: 100
+  train_interval: 1000
+  val_interval: 1000

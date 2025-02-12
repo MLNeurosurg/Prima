@@ -1,272 +1,266 @@
-from pathlib import Path
-import random
-import time
-import pandas as pd
-import numpy as np
-
-import sys
+import argparse
 import os
-import yaml
 import re
+import random
+import sys
+import time
+from pathlib import Path
+
+import yaml
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
-from generative.networks.nets import VQVAE
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
-from sklearn.model_selection import train_test_split
-from torchmr.data.mrdataset import VolumeDataModule
 import torch
 import torch.nn as nn
 import wandb
+from generative.networks.nets import VQVAE 
+from sklearn.model_selection import train_test_split
+from mrdataset import VolumeDataModule
 
 def alphanum_key(s):
-    # Split the string into a list of numbers and non-number parts
+    """
+    Helper for natural sorting. Splits string into a list of strings and numbers.
+    """
     return [int(text) if text.isdigit() else text for text in re.split('([0-9]+)', s)]
 
-def get_step(fn):
+def get_step(filename):
+    """
+    Extract the training step number from a checkpoint filename.
+    """
     pattern = r"(\d+)\.pth"
-    match = re.search(pattern, fn)
+    match = re.search(pattern, filename)
     if match:
-        step_number = int(match.group(1))
-        return step_number
+        return int(match.group(1))
     else:
         return -1
 
 def set_seed(seed):
+    """
+    Set seeds for reproducibility.
+    """
     random.seed(seed)
     np.random.seed(seed)
-    torch.manual_seed(seed) 
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-# wandb_logger = WandbLogger(project='<project_name>', log_model = 'all')
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using device: {device}")
-torch.set_float32_matmul_precision('high')
-TOCHO_PATH = "/nfs/turbo/umms-tocho-snr"
-PATH_PROJ  = f"{TOCHO_PATH}/exp/eharakej"
-PATH_CUR = f"{PATH_PROJ}/TOKEN-MODEL-8-32-32_ablation_4096_2024-10-02-1322PM"
+def load_config(config_path):
+    """
+    Load the YAML configuration file.
+    """
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
 
-def main(params, data_module):
-    print(f"Using {device}")
-    sys.stdout.flush()
-    # get dataloaders
+def train_model(config):
+    """
+    Main training loop. Reads all parameters from the provided config.
+    """
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    torch.set_float32_matmul_precision('high')
+
+    # Setting reproducibility seed
+    set_seed(config.get('seed', 42))
+
+    paths_config = config.get('paths', {})
+    base_tocho = paths_config.get('tocho')
+    proj_name = paths_config.get('proj')
+    current_subdir = paths_config.get('current')
+
+    proj_path = os.path.join(base_tocho, proj_name)
+    checkpoint_dir = os.path.join(proj_path, current_subdir)
+    Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+
+    # --- WandB configuration ---
+    wandb_config = config.get('wandb', {})
+    wandb_project = wandb_config.get('project', 'default_project')
+    wandb_entity = wandb_config.get('entity', None)
+    wandb.init(project=wandb_project, entity=wandb_entity)
+
+    # --- Data configuration ---
+    data_config = config.get('data', {})
+    mri_csv_path = data_config.get('mri_csv_path')
+    if mri_csv_path is None or not os.path.exists(mri_csv_path):
+        print("MRI CSV path is not provided or does not exist in the config.")
+        sys.exit(1)
+    mr_df = pd.read_csv(mri_csv_path)
+
+    # Create a train/validation split
+    test_size = data_config.get('test_size', 0.2)
+    train_df, val_df = train_test_split(mr_df, test_size=test_size, shuffle=True)
+
+    # Save the validation set for future inference
+    val_csv_path = os.path.join(checkpoint_dir, 'val_dataset.csv')
+    val_df.to_csv(val_csv_path, index=False)
+
+    # DataModule parameters (adjust as needed)
+    patch_cat   = data_config.get('patch_cat', 64)
+    batch_size  = data_config.get('batch_size', 20)
+    token_limit = data_config.get('token_limit', 1600)
+    gpus        = data_config.get('gpus', 1)
+    num_workers = data_config.get('num_workers', 8)
+
+    data_module = VolumeDataModule(train_df, val_df,
+                                   patch_cat=patch_cat,
+                                   batch_size=batch_size,
+                                   token_limit=token_limit,
+                                   gpus=gpus,
+                                   num_workers=num_workers)
     data_module.setup()
-    train_loader = data_module.train_dataloader()
-    val_loader = data_module.val_dataloader()
-    
+
+    # --- Model configuration ---
+    model_config = config.get('model', {})
     vqvae_model = VQVAE(
-        spatial_dims   = params["spatial_dims"],
-        in_channels    = params["in_channels"],
-        out_channels   = params["out_channels"],
-        num_res_layers = params["num_res_layers"],
-        downsample_parameters = params["downsample_parameters"],
-        upsample_parameters = params["upsample_parameters"],
-        num_channels          = params["num_channels"],
-        num_res_channels      = params["num_res_channels"],
-        num_embeddings = params["num_embeddings"],
-        embedding_dim  = params["embedding_dim"],
+        spatial_dims          = model_config.get("spatial_dims", 3),
+        in_channels           = model_config.get("in_channels", 1),
+        out_channels          = model_config.get("out_channels", 1),
+        num_res_layers        = model_config.get("num_res_layers", 2),
+        downsample_parameters = model_config.get("downsample_parameters", []),
+        upsample_parameters   = model_config.get("upsample_parameters", []),
+        num_channels          = model_config.get("num_channels", 128),
+        num_res_channels      = model_config.get("num_res_channels", 32),
+        num_embeddings        = model_config.get("num_embeddings", 512),
+        embedding_dim         = model_config.get("embedding_dim", 64)
     )
     vqvae_model = vqvae_model.to(device)
 
-    optimizer = torch.optim.Adam(params=vqvae_model.parameters(), lr=1e-4)
+    # --- Optimizer configuration ---
+    optimizer_config = config.get('optimizer', {})
+    lr = optimizer_config.get('lr', 1e-4)
+    optimizer = torch.optim.Adam(vqvae_model.parameters(), lr=lr)
     l1_loss = nn.L1Loss()
-    
-    n_epochs       = params["n_epochs"]
-    val_interval   = 200 # every 200 mini-batches save model and statistics
-    train_interval = 200
 
-    interval_train_recons_loss_list = []
-    interval_valid_recons_loss_list = []
-    interval_train_quant_loss_list = []
-    interval_valid_quant_loss_list = []
+    # --- Training parameters ---
+    train_config = config.get('train', {})
+    n_epochs      = train_config.get('n_epochs', 10)
+    train_interval = train_config.get('train_interval', 200)
+    val_interval   = train_config.get('val_interval', 200)
 
-    # save model checkpoints
-    Path(PATH_CUR).mkdir(parents=True, exist_ok=True)
-    items = [x for x in os.listdir(PATH_CUR) if x.endswith(".pth")]
-    if len(items) > 0:
-        checkpoints = sorted(items, key=alphanum_key)
-        CHECK_PATH = os.path.join(PATH_CUR, checkpoints[-1])
-        vqvae_model.load_state_dict(torch.load(CHECK_PATH, map_location=torch.device(device)))
-        total_step = get_step(checkpoints[-1]) + 1
-    else:
-        total_step = 0
+    # --- Checkpoint load ---
+    existing_ckpts = sorted(
+        [fname for fname in os.listdir(checkpoint_dir) if fname.endswith(".pth")],
+        key=alphanum_key
+    )
+    total_step = 0
+    if existing_ckpts:
+        last_ckpt = existing_ckpts[-1]
+        ckpt_path = os.path.join(checkpoint_dir, last_ckpt)
+        vqvae_model.load_state_dict(torch.load(ckpt_path, map_location=device))
+        total_step = get_step(last_ckpt) + 1
 
-    #initialize wandb library
-    wandb.init(project='<project name>', entity = '<username>')
-                
+
     total_start = time.time()
-    #total_step = get_step(checkpoints[-1]) + 1
-    #total_step = 0
 
-    for epoch in tqdm(range(n_epochs)):
-        start_epoch_time = time.time()
-        s = start_epoch_time
-        
+    # --- Training loop ---
+    for epoch in range(n_epochs):
+        epoch_start = time.time()
         vqvae_model.train()
 
-        interval_train_recons_loss = 0
-        interval_train_quant_loss = 0
+        # Reset interval loss accumulators for this epoch
+        interval_train_recons_loss = 0.0
+        interval_train_quant_loss  = 0.0
 
-        for step, batch in tqdm(enumerate(train_loader)):
-            
+        train_loader = data_module.train_dataloader()
+        val_loader   = data_module.val_dataloader()
+
+        for step, batch in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{n_epochs}"), start=1):
             images = batch.to(device)
-            axes = [2, 3, 4]  
+            # Permute the image axes in a random order
+            axes = [2, 3, 4]
             random.shuffle(axes)
             images_t = images.permute(0, 1, *axes)
+
             optimizer.zero_grad(set_to_none=True)
-
-            # model outputs reconstruction and the quantization error
             reconstruction, quantization_loss = vqvae_model(images=images_t)
-            
             recons_loss = l1_loss(reconstruction.float(), images_t.float())
-
             loss = recons_loss + quantization_loss
-
             loss.backward()
             optimizer.step()
 
             interval_train_recons_loss += recons_loss.item()
-            interval_train_quant_loss += quantization_loss.detach().item()
+            interval_train_quant_loss  += quantization_loss.detach().item()
 
-            # save training loss every 1% of training mini-batches (analagous to every 1/100 epochs)
+            # Log training losses every train_interval mini-batches
             if (total_step + 1) % train_interval == 0:
-                avg_train_recons_loss = interval_train_recons_loss / train_interval
-                interval_train_recons_loss_list.append(avg_train_recons_loss)
-                avg_train_quant_loss = interval_train_quant_loss/train_interval
-                interval_train_quant_loss_list.append(avg_train_quant_loss)
-                wandb.log({'avg_train_recon_loss': avg_train_recons_loss})
-                wandb.log({'avg_train_quant_loss': avg_train_quant_loss})
-                interval_train_recons_loss = 0
-                interval_train_quant_loss = 0
+                avg_train_recons = interval_train_recons_loss / train_interval
+                avg_train_quant  = interval_train_quant_loss / train_interval
 
-                try:               
-                    recon_train_file_path = f"{PATH_CUR}/interval_train_recons_loss_list.npy" 
-                    np.save(recon_train_file_path, np.array(interval_train_recons_loss_list))
-                    quant_train_file_path = f"{PATH_CUR}/interval_train_quant_loss_list.npy"
-                    np.save(quant_train_file_path, np.array(interval_train_quant_loss_list))    
-                except Exception as e:
-                    print(f"Couldn't save data at step {total_step}.")
-                    print(e)
-                    sys.stdout.flush()
-                                
-                # Time; GPU usage
-                end     = time.time()
-                elapsed = end - s 
-                s       = end
-                gpu_usage = 50
-                print(f"Training step {total_step}. Elapsed: {elapsed//60} minutes ({int(elapsed)} seconds). GPU Usage: {gpu_usage}%")
+                wandb.log({
+                    'avg_train_recon_loss': avg_train_recons,
+                    'avg_train_quant_loss': avg_train_quant
+                })
+
+                elapsed = time.time() - epoch_start
+        
+                print(f"Step {total_step}: Elapsed {int(elapsed//60)} min ({int(elapsed)} sec)")
                 sys.stdout.flush()
-            
-            # save model, validation, every 1,000 mini-batches
+
+                interval_train_recons_loss = 0.0
+                interval_train_quant_loss  = 0.0
+
+            # Run validation and save checkpoint every val_interval mini-batches
             if (total_step + 1) % val_interval == 0:
-                            
-                # Save model & train/valid loss stats
                 vqvae_model.eval()
-                recon_val_loss = 0
-                quant_val_loss = 0
+                recon_val_loss = 0.0
+                quant_val_loss = 0.0
+                val_batches = 0
+
+                # Save current checkpoint
+                ckpt_save_path = os.path.join(checkpoint_dir, f"vqvae_model_step{total_step}.pth")
+                torch.save(vqvae_model.state_dict(), ckpt_save_path)
 
                 with torch.no_grad():
-                
-                    torch.save(
-                        vqvae_model.state_dict(),
-                        os.path.join(PATH_CUR, f"vqvae_model_step{total_step}.pth"),
-                    )
-                
-                    k = 0
-                    for val_step, batch in enumerate(val_loader, start=1):
-                        k += 1
-                        if k == 3:
+                    for val_step, val_batch in enumerate(val_loader, start=1):
+                        if val_step > 2:  # Limit validation to a few batches
                             break
-                        images = batch.to(device)
-                        images_t = images
+                        images_val = val_batch.to(device)
+                        recon_val, quant_val = vqvae_model(images=images_val)
+                        recon_loss_val = l1_loss(recon_val.float(), images_val.float())
+                        recon_val_loss += recon_loss_val.item()
+                        quant_val_loss += quant_val.detach().item()
+                        val_batches += 1
 
-                        reconstruction, quantization_loss = vqvae_model(images=images_t)
-                        recons_loss = l1_loss(reconstruction.float(), images_t.float())
-                        recon_val_loss += recons_loss.item()
-                        quant_val_loss += quantization_loss.detach().item()
+                if val_batches > 0:
+                    recon_val_loss /= val_batches
+                    quant_val_loss /= val_batches
 
-                recon_val_loss /= val_step
-                quant_val_loss /= val_step
-                interval_valid_recons_loss_list.append(recon_val_loss)
-                interval_valid_quant_loss_list.append(quant_val_loss)
-                wandb.log({'avg_val_recon_loss': recon_val_loss})
-                wandb.log({'avg_val_quant_loss': quant_val_loss})
-                
-                try:               
-                    recon_valid_file_path = f"{PATH_CUR}/interval_valid_recons_loss_list.npy"                 
-                    np.save(recon_valid_file_path, np.array(interval_valid_recons_loss_list))
-                    quant_valid_file_path = f"{PATH_CUR}/interval_valid_quant_loss_list.npy"
-                    np.save(quant_valid_file_path, np.array(interval_valid_quant_loss_list))
+                wandb.log({
+                    'avg_val_recon_loss': recon_val_loss,
+                    'avg_val_quant_loss': quant_val_loss
+                })
 
-                except Exception as e:
-                    print(f"Couldn't save data at step {total_step}.")
-                    print(e)
-                    sys.stdout.flush()
-                
-                # Reset training again
                 vqvae_model.train()
-        
-            total_step +=1
-        
-        elapsed = time.time() - start_epoch_time
-        print(f"Epoch {epoch}. Elapsed: {elapsed//60} minutes ({int(elapsed)} seconds).")
+
+            total_step += 1
+
+        epoch_elapsed = time.time() - epoch_start
+        print(f"Epoch {epoch+1} completed in {int(epoch_elapsed//60)} min ({int(epoch_elapsed)} sec).")
         sys.stdout.flush()
-        
+
     total_time = time.time() - total_start
-    total_min = total_time//60
-    total_hr  = total_min//60
-    print(f"train completed, total time: {total_min} minutes {total_hr} hours.")
+    total_minutes = total_time // 60
+    total_hours = total_minutes // 60
+    print(f"Training completed in {int(total_minutes)} min ({int(total_hours)} hrs).")
     print("End")
     sys.stdout.flush()
 
-    # Save
-    try:
-        recon_train_file_path = f"{PATH_CUR}/interval_train_recons_loss_list.npy"                 
-        np.save(recon_train_file_path, np.array(interval_train_recons_loss_list))
-        quant_train_file_path = f"{PATH_CUR}/interval_train_quant_loss_list.npy"
-        np.save(quant_train_file_path, np.array(interval_train_quant_loss_list))
-        
-        recon_valid_file_path = f"{PATH_CUR}/interval_valid_recons_loss_list.npy"                 
-        np.save(recon_valid_file_path, np.array(interval_valid_recons_loss_list))
-        quant_valid_file_path = f"{PATH_CUR}/interval_valid_quant_loss_list.npy"
-        np.save(quant_valid_file_path, np.array(interval_valid_quant_loss_list))
+def main():
+    parser = argparse.ArgumentParser(description="Train VQVAE Model")
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='/model_run/train_vqvae_params.yaml',
+        help='Path to configuration YAML file.'
+    )
+    args = parser.parse_args()
 
-    except Exception as e:
-        print(f"Couldn't save data at end.")
-        print(e)
-        sys.stdout.flush()
-    
-
+    config = load_config(args.config)
+    train_model(config)
 
 if __name__ == "__main__":
-   
-    set_seed(42)
-
-    # read in config file with VQVAE model parameters
-    with open('/model_run/train_vqvae_params.yaml', 'r') as f:
-        params=yaml.safe_load(f)
-
-    patch_cat = params['patch_size'][1]
-    
-    mr_df = pd.read_csv('/path/to/mri_data')
-
-    # create a train test split
-    train_data, val_data = train_test_split(mr_df, test_size=0.2, shuffle= True)
-
-    # store validation set for future inferencing
-    val_data.to_csv(f'{PATH_CUR}/val_dataset.csv')
-
-    data_module = VolumeDataModule(train_data,
-                                   val_data,
-                                   patch_cat=patch_cat,
-                                   batch_size=20,
-                                   token_limit=1600,
-                                   gpus=1,
-                                   num_workers=8)
-    
-    main(params, data_module=data_module)
-
+    main()

@@ -69,7 +69,7 @@ class Pipeline:
         # Run the tokenizer model
         # TODO: create custom tokenizer that vqvae runs on 
         with torch.no_grad():
-            series_embeddings = [vqvae(torch.unsqueeze(torch.tensor(series), 0).float().cuda())[0].cpu().numpy() for series in mri_study]
+            raise NotImplementedError('Working on this, will update soon')
 
         logging.info('Tokenizer model run')
         return series_embeddings
@@ -83,3 +83,18 @@ class Pipeline:
         #TODO
 
         raise NotImplementedError('Working on this')
+    
+
+
+
+if __name__=="__main__":
+    parser = argparse.ArgumentParser(description='End-to-end inference pipeline')
+    parser.add_argument('--config', type=str, required=True, help='Path to the config file')
+    args = parser.parse_args()
+    with open(args.config, 'r') as f:
+        config = json.load(f)
+
+    pipeline = Pipeline(config)
+    mri_study = pipeline.load_mri_studies()
+    series_embeddings = pipeline.run_tokenizer_model(mri_study)
+    pipeline.run_prima_model(series_embeddings)
