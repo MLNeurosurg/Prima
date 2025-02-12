@@ -1,6 +1,6 @@
 torch==2.3.0
 pytorch-lightning==1.6.4
-opencv-python==4.6.0.66
+opencv-python>=4.8.1.78
 natsort==8.4.0
 SimpleITK==2.3.0
 pandas==1.4.3
