@@ -1,28 +1,33 @@
 import torch
 import math
+from typing import Dict, List, Tuple, Optional, Union, Callable
 from torch import nn
 from perceiver_pytorch import Perceiver
 from einops import rearrange, repeat
 from positional_encodings.torch_encodings import PositionalEncoding1D
 from einops.layers.torch import Rearrange
+from flash_attn import flash_attn_qkvpacked_func, flash_attn_varlen_qkvpacked_func
 # helpers
 
-def pair(t):
+def pair(t: Union[int, Tuple[int, int]]) -> Tuple[int, int]:
+    """Convert input to tuple if it's not already."""
     return t if isinstance(t, tuple) else (t, t)
 
 # classes
 
 # wrapper for GPT, with MLP head
 class GPTWrapper(nn.Module):
-    def __init__(self, model,feature_dim, model_dim):
+    """Wrapper for GPT model with MLP head for feature projection."""
+    
+    def __init__(self, model: nn.Module, feature_dim: int, model_dim: int):
         super().__init__()
         self.model = model
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(model_dim),
-            nn.Linear(model_dim,feature_dim),
+            nn.Linear(model_dim, feature_dim),
             nn.LayerNorm(feature_dim)
         )
-    def forward(self,x,xmax):
+    def forward(self, x: torch.Tensor, xmax: torch.Tensor) -> torch.Tensor:
         out = self.model(x)['last_hidden_state']
         bs,_,es = out.size()
         outs = torch.zeros(bs,es).to(out.device)
@@ -33,17 +38,21 @@ class GPTWrapper(nn.Module):
 
 
 class PreNorm(nn.Module):
-    def __init__(self, dim, fn):
+    """Pre-normalization wrapper for transformer blocks."""
+    
+    def __init__(self, dim: int, fn: nn.Module):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.fn = fn
-    def forward(self, x, culen = None,mxlen = None):
+    def forward(self, x: torch.Tensor, culen: Optional[torch.Tensor] = None,mxlen: Optional[torch.Tensor] = None):
         if culen is None:
             return self.fn(self.norm(x))
         return self.fn(self.norm(x), culen,mxlen)
 
 class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, dropout = 0.):
+    """Feed-forward network for transformer blocks."""
+    
+    def __init__(self, dim: int, hidden_dim: int, dropout: float = 0.):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(dim, hidden_dim),
@@ -52,12 +61,14 @@ class FeedForward(nn.Module):
             nn.Linear(hidden_dim, dim),
             nn.Dropout(dropout)
         )
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
 from flash_attn import flash_attn_qkvpacked_func, flash_attn_varlen_qkvpacked_func
 class Attention(nn.Module):
-    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0., causal = False):
+    """Multi-head attention with optional flash attention support."""
+    
+    def __init__(self, dim: int, heads: int = 8, dim_head: int = 64, dropout: float = 0., causal: bool = False):
         super().__init__()
         inner_dim = dim_head *  heads
         self.inner_dim = inner_dim
@@ -80,7 +91,7 @@ class Attention(nn.Module):
         ) if project_out else nn.Identity()
 
 
-    def forward(self, x, culen, mxlen):
+    def forward(self, x: torch.Tensor, culen: torch.Tensor, mxlen: torch.Tensor) -> torch.Tensor:
         if not hasattr(self,'causal'):
             self.causal = False
         bxs,embsize = x.size()
@@ -95,7 +106,8 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 # attention function without using flash attention
-def no_flash_attn_varlen_substitute(qkv,culen):
+def no_flash_attn_varlen_substitute(qkv: torch.Tensor, culen: torch.Tensor) -> torch.Tensor:
+    """Fallback attention implementation when flash attention is not available."""
     qkv = qkv.transpose(0,1)
     q, k, v = map(lambda t: rearrange(t, 'n h d -> h n d'), qkv)
     
@@ -112,7 +124,9 @@ def no_flash_attn_varlen_substitute(qkv,culen):
     return out
 
 class Transformer(nn.Module):
-    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0., causal = False):
+    """Transformer block with attention and feed-forward layers."""
+    
+    def __init__(self, dim: int, depth: int, heads: int, dim_head: int, mlp_dim: int, dropout: float = 0., causal: bool = False):
         super().__init__()
         self.layers = nn.ModuleList([])
         for _ in range(depth):
@@ -120,14 +134,16 @@ class Transformer(nn.Module):
                 PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout, causal = causal)),
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
             ]))
-    def forward(self, x, culen, mxlen):
+    def forward(self, x: torch.Tensor, culen: torch.Tensor, mxlen: torch.Tensor) -> torch.Tensor:
         for attn, ff in self.layers:
             x = attn(x,culen,mxlen) + x
             x = ff(x) + x
         return x
 
 class ViT(nn.Module):
-    def __init__(self, dim, num_classes, depth, heads, mlp_dim, pool = 'cls', dim_head = 64, dropout = 0., emb_dropout = 0., clsnum = 10):
+    """Vision Transformer for processing image sequences."""
+    
+    def __init__(self, dim: int, num_classes: int, depth: int, heads: int, mlp_dim: int, pool: str = 'cls', dim_head: int = 64, dropout: float = 0., emb_dropout: float = 0., clsnum: int = 10):
         """
         dim: dimension of embeddings in this transformer
         num_classes: final MLP head output dimension
@@ -160,11 +176,11 @@ class ViT(nn.Module):
             nn.Linear(self.clsnum*dim, num_classes))
 
     # This function is used to ban flash attention from this ViT
-    def make_no_flashattn(self):
+    def make_no_flashattn(self) -> None:
         for layer in self.transformer.layers:
             layer[0].fn.noflashattn = True
 
-    def forward(self, xdict, retpool = False, retboth = False):
+    def forward(self, xdict: Dict[str, torch.Tensor], retpool: bool = False, retboth: bool = False) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         # xdict: the dictionary of inputs
         # retpool: whether to return the pooled ViT output without MLP
         # retboth: return both pooled ViT with and without MLP
@@ -213,22 +229,26 @@ class ViT(nn.Module):
 
 # The LSTM that encodes the serienames
 class SerieEncoder(nn.Module):
-    def __init__(self,out_dim):
+    """LSTM-based encoder for series names."""
+    
+    def __init__(self,out_dim: int):
         super().__init__()
         self.embed = nn.Embedding(47,200)
         self.lstm = nn.LSTM(200,200,batch_first=True)
         self.linear = nn.Linear(200,out_dim)
-    def forward(self,x):
+    def forward(self,x: torch.Tensor) -> torch.Tensor:
         x = self.embed(x)
         x,_ = self.lstm(x)
         ret = self.linear(x[:,-1,:])
         return ret
-    def make_no_flashattn(self):
+    def make_no_flashattn(self) -> None:
         pass
 
 # the transformer that encodes the serienames
 class SerieTransformerEncoder(nn.Module):
-    def __init__(self,out_dim,positional_encoding_dim=10):
+    """Transformer-based encoder for series names."""
+    
+    def __init__(self,out_dim: int,positional_encoding_dim: int=10):
         super().__init__()
         self.embsize = 256
         self.embed = nn.Embedding(47,246)
@@ -237,7 +257,7 @@ class SerieTransformerEncoder(nn.Module):
         p_enc = PositionalEncoding1D(positional_encoding_dim)
         self.p_enc = p_enc(torch.zeros(1,200,positional_encoding_dim))[0]
         self.prelinear = False
-    def forward(self,x):
+    def forward(self,x: torch.Tensor) -> torch.Tensor:
         occur46 = (x == 46).nonzero()
         assert occur46.size()[0] == len(x)
         assert occur46.size()[1] == 2
@@ -261,7 +281,7 @@ class SerieTransformerEncoder(nn.Module):
         return self.linear(xout)
 
     # This function is used to ban flash attention from this module
-    def make_no_flashattn(self):
+    def make_no_flashattn(self) -> None:
         for layer in self.transformer.layers:
             layer[0].fn.noflashattn = True
         
@@ -269,7 +289,9 @@ class SerieTransformerEncoder(nn.Module):
     
 # Hierarchial ViT
 class HierViT(nn.Module):
-    def __init__(self, argsinner, argsouter, useseriename = False,  usestudydescription=False,patdis = False, patdisdim = 128, pretrainedserieencoder = None):
+    """Hierarchical Vision Transformer for processing medical image studies."""
+    
+    def __init__(self, argsinner: Dict, argsouter: Dict, useseriename: bool = False,  usestudydescription: bool = False,patdis: bool = False, patdisdim: int = 128, pretrainedserieencoder: Optional[str] = None):
         # argsinner: config for inner ViT (sequence ViT)
         # argsouter: config for outer ViT (study ViT)
         # useseriename: whether to use serie name (i.e. sequence names) for innerViT
@@ -293,7 +315,7 @@ class HierViT(nn.Module):
                 self.serieencoder = torch.nn.Sequential(serieencoder, torch.nn.Linear(serieencoder.embsize,argsinner['dim']))
         if usestudydescription: 
             self.studyencoder = SerieTransformerEncoder(argsouter['dim'])
-    def forward(self,xdict, retpool=False):
+    def forward(self,xdict: Dict[str, torch.Tensor], retpool: bool = False) -> Union[torch.Tensor, Tuple[torch.Tensor, ...]]:
         # xdict: the dictionary of inputs
         #self.usestudydescription=False
         # retpool: whether to return the pooled ViT output without MLP
@@ -366,7 +388,7 @@ class HierViT(nn.Module):
         return self.outerViT({'visual':nextx,'lens':lens.to(mydevice)}, retpool=retpool)
     
     # This function is used to ban flash attention from this HierViT
-    def make_no_flashattn(self):
+    def make_no_flashattn(self) -> None:
         self.innerViT.make_no_flashattn()
         self.outerViT.make_no_flashattn()
         try:
@@ -377,7 +399,8 @@ class HierViT(nn.Module):
             
     
 # the clip objsctive
-def clip_objective(d1,d2,temperature = torch.zeros(1)):
+def clip_objective(d1: torch.Tensor, d2: torch.Tensor, temperature: torch.Tensor = torch.zeros(1)) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute CLIP objective loss."""
     dots = torch.matmul(d1,d2.t())
     dotstemp = dots * torch.exp(temperature.to(dots.device))
     labels = torch.arange(len(d1)).to(d1.device)
@@ -391,7 +414,8 @@ def clip_objective(d1,d2,temperature = torch.zeros(1)):
 
 
 # the patient series discrimination objective
-def patdis_objective(patdisembs,map, tau=0.1):
+def patdis_objective(patdisembs: torch.Tensor, map: torch.Tensor, tau: float = 0.1) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute patient discrimination objective loss."""
     device = patdisembs.device
     numseries = len(patdisembs)
     mask = torch.zeros(numseries,numseries).to(device)
