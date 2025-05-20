@@ -14,8 +14,8 @@ from .model_parts import (
     FeedForward,
     Attention
 )
-from .dataset import RachelDataset
-from .patchify import RachelDatasetPatchifier
+from .dataset import MrDataset
+from .patchify import MedicalImagePatchifier
 
 __all__ = [
     'CLIP',
@@ -28,6 +28,6 @@ __all__ = [
     'PreNorm',
     'FeedForward',
     'Attention',
-    'RachelDataset',
-    'RachelDatasetPatchifier'
+    'MrDataset',
+    'MedicalImagePatchifier'
 ] 

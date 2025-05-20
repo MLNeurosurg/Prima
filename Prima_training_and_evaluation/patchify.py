@@ -4,7 +4,7 @@ import time
 import random
 
 
-class RachelDatasetPatchifier(torch.nn.Module):
+class MedicalImagePatchifier(torch.nn.Module):
     """
     A PyTorch module that processes 3D medical imaging data by adding positional encodings to visual token embeddings.
     
@@ -18,7 +18,7 @@ class RachelDatasetPatchifier(torch.nn.Module):
         d (int): Dimension of 3D positional encoding
         p_enc (torch.Tensor): Pre-computed positional encodings for a 100x100x100 grid
     """
-    
+
     def __init__(self, in_dim=1024, d=30):
         """
         Initialize the patchifier.
@@ -30,10 +30,11 @@ class RachelDatasetPatchifier(torch.nn.Module):
         super().__init__()
         self.out_dim = in_dim + d
         assert d % 3 == 0, "Positional encoding dimension must be divisible by 3"
-        
+
         # Initialize 3D positional encoding for a 100x100x100 grid
         p_enc = PositionalEncoding3D(d)
-        self.p_enc = p_enc(torch.zeros(1, 100, 100, 100, d))[0].view(1000000, d)
+        self.p_enc = p_enc(torch.zeros(1, 100, 100, 100,
+                                       d))[0].view(1000000, d)
         self.p_enc.requires_grad = False
         self.d = d
 
@@ -58,7 +59,7 @@ class RachelDatasetPatchifier(torch.nn.Module):
             # Get input shape and determine orientation
             shapes = x.size()
             orientation = torch.zeros(3)  # Orientation embedding vector
-            
+
             # Determine the orientation and division factors based on input shape
             if shapes[2] == 2:  # First dimension is small
                 orientation[0] = 1
@@ -72,31 +73,31 @@ class RachelDatasetPatchifier(torch.nn.Module):
                 orientation[2] = 1
                 div1, div2, div3 = 32, 32, 4
                 x = x.transpose(2, 4)
-            
+
             # Create division tensor for coordinate processing
-            div_tensor = torch.tensor([div1, div2, div3], dtype=torch.long).unsqueeze(0)
-            
+            div_tensor = torch.tensor([div1, div2, div3],
+                                      dtype=torch.long).unsqueeze(0)
+
             # Process coordinates to get positional encoding indices
             div_coords = coords[i] // div_tensor
-            pos_enc_indices = div_coords[:, 0] * 10000 + div_coords[:, 1] * 100 + div_coords[:, 2]
-            
+            pos_enc_indices = div_coords[:,
+                                         0] * 10000 + div_coords[:,
+                                                                 1] * 100 + div_coords[:,
+                                                                                       2]
+
             # Get positional encodings and orientation information
             pos_encodings = self.p_enc[torch.LongTensor(pos_enc_indices)]
             orientation_info = orientation.repeat(shapes[0], 1)
-            
+
             # Concatenate all features
-            processed_token = torch.cat([
-                x.flatten(start_dim=1),  # Flattened visual tokens
-                pos_encodings.cpu(),     # Positional encodings
-                orientation_info         # Orientation information
-            ], dim=1)
-            
+            processed_token = torch.cat(
+                [
+                    x.flatten(start_dim=1),  # Flattened visual tokens
+                    pos_encodings.cpu(),  # Positional encodings
+                    orientation_info  # Orientation information
+                ],
+                dim=1)
+
             processed_tokens.append(processed_token)
-            
+
         return processed_tokens
-
-
-
-
-
-

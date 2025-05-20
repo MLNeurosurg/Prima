@@ -1,27 +1,18 @@
-import os
-import pickle
-import logging
-import random
-import ast
-from glob import glob
 import sys
 import time
-from typing import Optional, Dict, Tuple
 
 import numpy as np
-import pandas as pd
 import torch
 import pytorch_lightning as pl
-from tqdm import tqdm
 from torch.utils.data import DataLoader
-from torchvision import transforms
-from monai.transforms import Spacingd, ToTensord, Resized
-import monai.transforms as montransform
 from monai.data import Dataset
-from tools.VolUtils import tokenize_volume, load_series_sitk, resize_tokens_batch
-import json
+from tools.VolUtils import tokenize_volume, \
+                            load_series_sitk, \
+                            resize_tokens_batch
+
 
 class VolumeDataset(Dataset):
+
     def __init__(self, data, transform=None):
         self.data = data
         self.transform = transform
@@ -32,22 +23,21 @@ class VolumeDataset(Dataset):
     def __getitem__(self, idx):
         volume_path = self.data.iloc[idx]['series_path']
         volume = load_series_sitk(volume_path)
-        
-        # print(f"Shape of {volume_path}: {volume.shape}")
 
-        tokens, _, _, _, patch_shape, z_idx = tokenize_volume(
-            volume, mask_perc=50)
-        
+        tokens, _, _, _, patch_shape, z_idx = tokenize_volume(volume,
+                                                              mask_perc=50)
+
         if not tokens:
             # print(f"No tokens found for {volume_path}")
             sys.exit(1)
 
-        patch_shape[z_idx] = 8 # upscaling the z dimension to 8 from 4
+        patch_shape[z_idx] = 8  #upsacling due to vqvae
         tokens = resize_tokens_batch(tokens, patch_shape)
-        # print(f"Shape of tokens: {tokens.shape}")
         return tokens, patch_shape
 
+
 class ConcatDataset(Dataset):
+
     def __init__(self, dataset, batch_size=32, token_limit=2048):
         self.dataset = dataset
         self.batch_size = batch_size
@@ -77,23 +67,24 @@ class ConcatDataset(Dataset):
             shape_buckets[key] = np.stack(shape_buckets[key])
 
         # Find the bucket with the maximum number of tokens or randomly select
-        max_bucket_key = max(shape_buckets, key=lambda k: shape_buckets[k].shape[0])
+        max_bucket_key = max(shape_buckets,
+                             key=lambda k: shape_buckets[k].shape[0])
         selected_tokens = shape_buckets[max_bucket_key]
         selected_shape = [int(dim) for dim in max_bucket_key.split('x')]
 
         # Pad tokens if they are less than the limit
         if selected_tokens.shape[0] < self.token_limit:
             pad_size = self.token_limit - selected_tokens.shape[0]
-            pad_token = np.zeros([pad_size] + selected_shape, dtype=selected_tokens.dtype)
-            selected_tokens = np.concatenate((selected_tokens, pad_token), axis=0)
+            pad_token = np.zeros([pad_size] + selected_shape,
+                                 dtype=selected_tokens.dtype)
+            selected_tokens = np.concatenate((selected_tokens, pad_token),
+                                             axis=0)
 
         # Ensure the selected_tokens has exactly token_limit tokens
         selected_tokens = selected_tokens[:self.token_limit]
 
         end = time.time()
         print(f"Time taken to collate the batch: {end - start}")
-        # print(f"selected tokens shape: {selected_tokens.shape}")
-        
         return torch.tensor(selected_tokens, dtype=torch.float32)
 
 
@@ -101,14 +92,18 @@ def custom_collate_fn(batch):
     batch = [torch.unsqueeze(i, 1) for i in batch]
     return batch[0]
 
+
 class VolumeDataModule(pl.LightningDataModule):
+    '''
+    This is custom datamodule that deals with varied mr dataset shapes
+    '''
 
     def __init__(self,
                  train_data,
                  val_data,
                  batch_size=32,
                  token_limit=2048,
-                 gpus = 1,
+                 gpus=1,
                  num_workers=8):
         super().__init__()
         self.train_data = train_data
@@ -144,12 +139,11 @@ class VolumeDataModule(pl.LightningDataModule):
 
 
 if __name__ == '__main__':
-    print('hello')
     # volume_path = ''
     # volume = load_series_sitk(volume_path)
     # print(volume.shape)
     # tokens, pad_vol_shape, patch_size, z_idx = chop_up_volume_into_patches_modified(volume, mask_perc=50)
     # print(len(tokens))
     # print(pad_vol_shape)
-    
+
     breakpoint()
