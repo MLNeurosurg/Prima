@@ -81,7 +81,7 @@ CLIP objective function, and transfer learning to predict radiologic diagnoses. 
 radiology report summarization and diagnostic labels for reliable, accurate, and scalable vision-
 language modeling. **c,** Volume tokenization stage involves dividing each MRI volume into smaller
 subvolume patches of shape 32x32x4, removing background tokens, and encoding each subvolume
-using a VQ-VAE encoder. We provide code for preprocessing and VQ-VAE tokenization under [preprocessing and tokenization](preprocessing%20and%20tokenization).
+using a VQ-VAE encoder. We provide code for preprocessing and VQ-VAE tokenization under [preprocessing and tokenization](preprocessing_and_tokenization).
 
 The latent VQ-VAE tokens are then passed forward to the sequence ViT
 with the concatenated positional encodings. **d,** The hierarchical ViT is trained using a CLIP objective
@@ -91,19 +91,19 @@ passed forward to the study ViT that outputs a single representation for the ful
 reports are summarized and passed through a pre-trained neuroradiology model to align the MRI
 study and the paired report. **e,** A transfer learning strategy is used such that the volume tokenizer,
 sequence and study transformers are frozen, and an MLP is trained on the learned study features for
-radiologic and clinical task prediction. We provide code for training the hierarchical vision transformer using CLIP objective, as well as code for training the task-specific MLPs and evaluating on prospective test set, under [Prima training and evaluation](Prima%20training%20and%20evaluation).
+radiologic and clinical task prediction. We provide code for training the hierarchical vision transformer using CLIP objective, as well as code for training the task-specific MLPs and evaluating on prospective test set, under [Prima training and evaluation](Prima_training_and_evaluation).
 
-We also provide an **end-to-end ready-to-use** inference pipeline for applying Prima directly on raw MRI scans at [end-to-end inference pipeline](end-to-end%20inference%20pipeline).
+We also provide an **end-to-end** inference pipeline for applying Prima directly on raw MRI study at [end-to-end inference pipeline](end-to-end_inference_pipeline).
 
 # Repository Structure
 
 This repository provides code and instructions for 3 parts of our project
 
-(1) Under [preprocessing and tokenization](preprocessing%20and%20tokenization), we present our code for preprocessing raw MRI sequences and encoding each volume token via a VQ-VAE. We also provide code for training and evaluating the VQ-VAE model.
+(1) Under [preprocessing and tokenization](preprocessing_and_tokenization), we present our code for preprocessing raw MRI sequences and encoding each volume token via a VQ-VAE. We also provide code for training and evaluating the VQ-VAE model.
 
-(2) Under [Prima training and evaluation](Prima%20training%20and%20evaluation) folder, we present our code for CLIP training of Prima, together with scripts for classification evaluation on prospective test set.
+(2) Under [Prima training and evaluation](Prima_training_and_evaluation) folder, we present our code for CLIP training of Prima, together with scripts for classification evaluation on prospective test set.
 
-(3) Under [end-to-end inference pipeline](end-to-end%20inference%20pipeline) folder, we present an end-to-end ready-to-use pipeline for using our model to perform inference on raw, uncurated MRI studies
+(3) Under [end-to-end inference pipeline](end-to-end_inference_pipeline) folder, we present an end-to-end ready-to-use pipeline for using our model to perform inference on raw, uncurated MRI studies
 
 For detailed instructions, please see the `README.md` file within each folder.
 

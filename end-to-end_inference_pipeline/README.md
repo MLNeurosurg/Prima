@@ -1,12 +1,10 @@
-# Under construction
-
 # End-to-end Inference Pipeline
 
-This folder contains code for an end-to-end inference pipeline for applying Prima directly on raw MRI scans. The pipeline is designed to be user-friendly and easy to use. The pipeline is designed to be run on a local machine or a server. The pipeline can be used to perform inference on raw, uncurated MRI studies.
+This folder contains code for an end-to-end inference pipeline for applying Prima directly on a raw MRI study. The pipeline is designed to be user-friendly and easy to use and can be run on a local machine or a server. It will load the study, minimally process the data, and then pass it forward to the Prima model to generate the predicted radiologic diagnoses, referral, and prioritization recommendations.
 
-The input to the pipeline is a folder containing raw MRI scans in DICOM format. The output is a CSV file containing the predicted radiologic diagnoses for each MRI study.
+The input to the pipeline is a folder containing raw MRI scans in DICOM format. The output is a JSON file.
 
-Expected input folder structure:
+Expected raw mri study folder structure:
 ```
 Study_dir/
     series1/
@@ -27,5 +25,12 @@ Study_dir/
         ...
     ...
 ```
-
+Expected output JSON file structure:
+```
+{
+    "diagnosis": "...",
+    "referral": "...",
+    "priority": "..."
+}
+```
 

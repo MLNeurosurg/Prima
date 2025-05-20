@@ -259,7 +259,7 @@ class Pipeline:
             torch.cuda.empty_cache()
             gc.collect()
 
-    def run_prima_model(self, series_embeddings: List[torch.Tensor], series_names: List[str]) -> Dict[str, Any]:
+    def run_prima_model(self) -> Dict[str, Any]:
         """
         Run the Prima model to get final predictions.
         

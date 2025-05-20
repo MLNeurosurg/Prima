@@ -1,5 +1,8 @@
+study_dir: "path/to/study"
+output_dir: "path/to/output"
+
 # VQVAE Model Configuration
-vqvae:
+tokenizer_model_config:
   spatial_dims: 3
   in_channels: 1
   out_channels: 1
@@ -12,34 +15,8 @@ vqvae:
   embedding_dim: 4
 
 # Full PRIMA Model Configuration  
-prima:
-  clip_ckpt: "checkpoints/clip_model.pt"
-  diagnosis_heads_json: "configs/diagnosis_heads.json"
-  referral_heads_json: "configs/referral_heads.json" 
-  priority_head_ckpt: "checkpoints/priority_head.pt"
-
-  # Classification Heads
-  classification_heads:
-    diagnosis:
-      model_path: "checkpoints/diagnosis_head.pt"
-      threshold: 0.5
-    referral:
-      model_path: "checkpoints/referral_head.pt" 
-      threshold: 0.5
-
-  # Model Architecture
-  model:
-    feature_dim: 512
-    text:
-      type: "gpt2"
-    visual:
-      type: "hiervit"
-      depth: 12
-      heads: 8
-      mlp_dim: 2048
-      dim_head: 64
-      clsnum: 1
-      inner:
-        dim: 768
-      outer:
-        dim: 512
+prima_model_config:
+  clip_ckpt: "checkpoints/clip_model.pt" # Path to the CLIP model checkpoint
+  diagnosis_heads_json: "configs/diagnosis_heads.json" # Path to the diagnosis heads configuration
+  referral_heads_json: "configs/referral_heads.json" # Path to the referral heads configuration
+  priority_head_ckpt: "checkpoints/priority_head.pt" # Path to the priority head checkpoint

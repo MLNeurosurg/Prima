@@ -305,12 +305,8 @@ class ModelLoader:
             if not config:
                 raise ValueError("Empty configuration provided")
 
-            # Load the base PRIMA model
-            prima_model = ModelLoader.load_prima_model(config)
-            
             # Create the full model with heads
             full_model = PrimaModelWHeads(config)
-            
             # Move to appropriate device
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             full_model = full_model.to(device)

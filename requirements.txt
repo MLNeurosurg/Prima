@@ -1,4 +1,4 @@
-torch==2.3.0
+torch==2.6.0
 pytorch-lightning==2.5.1
 opencv-python>=4.8.1.78
 natsort==8.4.0
