@@ -17,7 +17,6 @@ This is the official code repository for paper submission "[Learning neuroimagin
       primaryClass={cs.CV},
       url={https://arxiv.org/abs/2509.18638}, 
 }
------
 ```
 
 ## Overview
