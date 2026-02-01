@@ -127,7 +127,13 @@ class Pipeline:
         if self.tokenizer_model is None:
             self.logger.info('Loading tokenizer model')
             try:
-                self.tokenizer_model = ModelLoader.load_vqvae_model(self.config.tokenizer_model_config)
+                # Handle both path string and dict config
+                if isinstance(self.config.tokenizer_model_config, str):
+                    with open(self.config.tokenizer_model_config, 'r') as f:
+                        tokenizer_config = json.load(f)
+                else:
+                    tokenizer_config = self.config.tokenizer_model_config
+                self.tokenizer_model = ModelLoader.load_vqvae_model(tokenizer_config)
                 self.tokenizer_model = self.tokenizer_model.to(self.config.device)
                 self.tokenizer_model.eval()
             except Exception as e:
@@ -140,7 +146,13 @@ class Pipeline:
         if self.prima_model is None:
             self.logger.info('Loading Prima model')
             try:
-                self.prima_model = ModelLoader.load_full_prima_model(self.config.prima_model_config)
+                # Handle both path string and dict config
+                if isinstance(self.config.prima_model_config, str):
+                    with open(self.config.prima_model_config, 'r') as f:
+                        prima_config = json.load(f)
+                else:
+                    prima_config = self.config.prima_model_config
+                self.prima_model = ModelLoader.load_full_prima_model(prima_config)
                 self.prima_model = self.prima_model.to(self.config.device)
                 self.prima_model.eval()
             except Exception as e:
@@ -186,10 +198,22 @@ class Pipeline:
             series_embeddings = self.run_tokenizer_model(mri_study)
             
             # prepare the input for the prima model
-            visuals = [torch.stack(emb) for emb in series_embeddings]
+            # series_embeddings is a list of tensors, each with shape [1, num_tokens, embedding_dim]
+            # Remove the batch dimension and keep as list of tensors
+            visuals = [emb.squeeze(0) for emb in series_embeddings]
             
             # Create series name tensors
-            serienames = torch.tensor([chartovec(name) for name in series_names], dtype=torch.long)
+            # The model expects serienames as a list where each element is a tensor of shape [num_series, max_chars]
+            # For a single study, we need to stack the series name tensors
+            seriename_tensors = [chartovec(name) for name in series_names]
+            # Find max length and pad
+            max_seriename_len = max(len(t) for t in seriename_tensors)
+            num_series = len(seriename_tensors)
+            serienames_tensor = torch.zeros(num_series, max_seriename_len, dtype=torch.long)
+            for i, t in enumerate(seriename_tensors):
+                serienames_tensor[i, :len(t)] = t
+            # Wrap in a list for batch dimension (single study)
+            serienames = [serienames_tensor]
             
             # Create study description tensor
             study_desc = torch.tensor([ord(c) for c in "MRI BRAIN"], dtype=torch.long)
@@ -263,10 +287,6 @@ class Pipeline:
         """
         Run the Prima model to get final predictions.
         
-        Args:
-            series_embeddings: List of series embeddings
-            series_names: List of series names
-            
         Returns:
             Dictionary containing model predictions
         """
@@ -277,23 +297,50 @@ class Pipeline:
             prima_input = self.prepare_prima_input()
 
             # Move input to correct device
-            prima_input = {
-                k: v.to(self.config.device) if isinstance(v, torch.Tensor) else v 
-                for k, v in prima_input.items()
-            }
+            def move_to_device(obj, device):
+                """Recursively move tensors to device."""
+                if isinstance(obj, torch.Tensor):
+                    return obj.to(device)
+                elif isinstance(obj, list):
+                    return [move_to_device(item, device) for item in obj]
+                elif isinstance(obj, dict):
+                    return {k: move_to_device(v, device) for k, v in obj.items()}
+                else:
+                    return obj
+            
+            prima_input = move_to_device(prima_input, self.config.device)
 
             # Load model if not already loaded
             if self.prima_model is None:
                 self.prima_model = self.load_full_prima_model()            
             
             # Run inference
-            with torch.no_grad(), torch.amp.autocast(device_type=self.config.device, dtype=torch.float16):
-                predictions = self.prima_model(prima_input)
+            device_type = 'cuda' if 'cuda' in str(self.config.device) else 'cpu'
+            with torch.no_grad():
+                if device_type == 'cuda':
+                    with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
+                        predictions = self.prima_model(prima_input)
+                else:
+                    predictions = self.prima_model(prima_input)
                     
+            # Convert tensors to lists for JSON serialization
+            def tensor_to_serializable(obj):
+                """Recursively convert tensors to lists/numpy arrays."""
+                if isinstance(obj, torch.Tensor):
+                    return obj.detach().cpu().tolist()
+                elif isinstance(obj, dict):
+                    return {k: tensor_to_serializable(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [tensor_to_serializable(item) for item in obj]
+                else:
+                    return obj
+            
+            predictions_serializable = tensor_to_serializable(predictions)
+            
             # Save predictions
             output_path = self.output_dir / 'predictions.json'
             with open(output_path, 'w') as f:
-                json.dump(predictions, f, indent=2)
+                json.dump(predictions_serializable, f, indent=2)
                 
             self.logger.info(f'Predictions saved to {output_path}')
             return predictions
@@ -333,7 +380,7 @@ if __name__=="__main__":
         pipeline.logger.info(f"Generated embeddings for {len(series_embeddings)} series")
         
         # Step 3: Run Prima model
-        predictions = pipeline.run_prima_model(series_embeddings, series_names)
+        predictions = pipeline.run_prima_model()
         pipeline.logger.info("Pipeline execution completed successfully")
         
     except Exception as e:

@@ -1,7 +1,10 @@
 import os
 import logging
 import natsort
+import re
+import uuid
 import SimpleITK as sitk
+import pydicom as pyd
 from typing import Dict, List, Optional, Tuple, Union
 from pathlib import Path
 
@@ -78,6 +81,61 @@ class DicomUtils:
             return sitk.JoinSeries(subsampled_slices)
         except Exception as e:
             raise RuntimeError(f"Failed to subsample series: {str(e)}")
+
+    @staticmethod
+    def replace_special_characters(input_string: str) -> str:
+        """
+        Replace special characters in a string with underscores.
+        
+        Args:
+            input_string: The input string.
+            
+        Returns:
+            The sanitized string.
+        """
+        if not input_string:
+            return ""
+        input_string = input_string.replace("+", "_plus_").replace('*', '_star_')
+        return re.sub(r'[^a-zA-Z0-9]', '_', input_string)
+
+    @staticmethod
+    def get_series_name(dicom_file_path: str) -> Optional[str]:
+        """
+        Generate a series name from DICOM metadata.
+        
+        Args:
+            dicom_file_path: Path to the DICOM file.
+            
+        Returns:
+            The series name, or None if an error occurred.
+        """
+        if not os.path.exists(dicom_file_path):
+            return None
+        try:
+            ds = pyd.dcmread(dicom_file_path, stop_before_pixels=True)
+            series_name = getattr(ds, 'SeriesDescription', "")
+            protocol_name = getattr(ds, 'ProtocolName', "")
+            series_uid = getattr(ds, 'SeriesInstanceUID', str(uuid.uuid4())[:8].upper())
+
+            series_name = DicomUtils.replace_special_characters(series_name)
+            protocol_name = DicomUtils.replace_special_characters(protocol_name)
+
+            if series_name and protocol_name:
+                if series_name == protocol_name:
+                    combined_name = series_name
+                else:
+                    combined_name = f"{series_name}-{protocol_name}-Protocol"
+            elif series_name:
+                combined_name = series_name
+            elif protocol_name:
+                combined_name = f"{protocol_name}-Protocol"
+            else:
+                return f"UNK-{series_uid}"
+
+            return combined_name
+        except Exception as e:
+            logging.error(f"Error reading DICOM file {dicom_file_path}: {e}")
+            return None
 
     @staticmethod
     def filter_dicom_series(file_paths: List[str]) -> List[str]:
@@ -195,19 +253,44 @@ class DicomUtils:
             study_dir: Path to study directory
             
         Returns:
-            Tuple of (list of series images, list of series names)
+            Tuple of (list of series images, list of series names extracted from DICOM metadata)
         """
         try:
             logging.info('Loading MRI studies')
             series_list = natsort.natsorted(os.listdir(study_dir))
             mri_study = []
+            valid_series_list = []
             
             for series in series_list:
                 series_path = os.path.join(study_dir, series)
-                series_image, _, _ = DicomUtils.read_dicom_series(series_path)
-                mri_study.append(series_image)
+                # Skip if not a directory
+                if not os.path.isdir(series_path):
+                    logging.warning(f"Skipping {series}: not a directory")
+                    continue
+                    
+                try:
+                    series_image, dicom_files, _ = DicomUtils.read_dicom_series(series_path)
+                    
+                    # Extract series name from first DICOM file
+                    series_name = None
+                    if dicom_files and len(dicom_files) > 0:
+                        series_name = DicomUtils.get_series_name(dicom_files[0])
+                    
+                    # Fallback to directory name if series name extraction failed
+                    if not series_name:
+                        logging.warning(f"Could not extract series name from {series}, using directory name")
+                        series_name = series
+                    
+                    mri_study.append(series_image)
+                    valid_series_list.append(series_name)
+                except Exception as e:
+                    logging.warning(f"Failed to load series {series}: {str(e)}. Skipping...")
+                    continue
                 
-            return mri_study, series_list
+            if len(mri_study) == 0:
+                raise RuntimeError(f"No valid series found in {study_dir}")
+                
+            return mri_study, valid_series_list
             
         except Exception as e:
             raise RuntimeError(f"Failed to load MRI study: {str(e)}")
