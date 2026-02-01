@@ -5,17 +5,18 @@
 <img src="https://github.com/user-attachments/assets/7028090e-dfbf-4358-b99c-3240a1918e87" width="300px" align="right" />
 
 
-This is the official code repository for paper submission "Learning neuroimaging models from health system-scale data", where we introduced Prima, the first general-purpose MRI VLM trained on health system-scale data. [Demo Website](https://prima.mlins.org)
+This is the official code repository for paper submission "[Learning neuroimaging models from health system-scale data](https://arxiv.org/abs/2509.18638v1)", where we introduced Prima, the first general-purpose MRI VLM trained on health system-scale data. [Demo Website](https://prima.mlins.org)
 
 ```
-Preprint coming soon!
------
-Placeholder for bibtex
-Placeholder for bibtex
-Placeholder for bibtex
-Placeholder for bibtex
-Placeholder for bibtex
------
+@misc{lyu2025learningneuroimagingmodelshealth,
+      title={Learning neuroimaging models from health system-scale data}, 
+      author={Yiwei Lyu and Samir Harake and Asadur Chowdury and Soumyanil Banerjee and Rachel Gologorsky and Shixuan Liu and Anna-Katharina Meissner and Akshay Rao and Chenhui Zhao and Akhil Kondepudi and Cheng Jiang and Xinhai Hou and Rushikesh S. Joshi and Volker Neuschmelting and Ashok Srinivasan and Dawn Kleindorfer and Brian Athey and Vikas Gulani and Aditya Pandey and Honglak Lee and Todd Hollon},
+      year={2025},
+      eprint={2509.18638},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2509.18638}, 
+}
 ```
 
 ## Overview
