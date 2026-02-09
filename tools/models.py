@@ -292,7 +292,9 @@ class ModelLoader:
         Load the complete PRIMA model including all components.
         
         Args:
-            config: Dictionary containing model configuration
+            config: Dictionary containing model configuration.
+                   If key 'full_model_ckpt' is present, load that single checkpoint.
+                   Otherwise expects clip_ckpt, diagnosis_heads_json, referral_heads_json, priority_head_ckpt.
             
         Returns:
             Complete PRIMA model instance
@@ -305,9 +307,21 @@ class ModelLoader:
             if not config:
                 raise ValueError("Empty configuration provided")
 
-            # Create the full model with heads
+            # Single full-model checkpoint (e.g. for testing)
+            if "full_model_ckpt" in config:
+                ckpt_path = Path(config["full_model_ckpt"])
+                if not ckpt_path.exists():
+                    raise FileNotFoundError(f"Full model checkpoint not found at {ckpt_path}")
+                logging.info(f"Loading full PRIMA model from {ckpt_path}")
+                full_model = torch.load(ckpt_path, map_location="cpu")
+                if hasattr(full_model, "module"):
+                    full_model = full_model.module
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                full_model = full_model.to(device)
+                return full_model
+
+            # Build from components
             full_model = PrimaModelWHeads(config)
-            # Move to appropriate device
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             full_model = full_model.to(device)
             
