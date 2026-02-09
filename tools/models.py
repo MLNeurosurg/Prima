@@ -1,10 +1,78 @@
 import json
+import sys
 import torch
 from typing import Dict, Optional, Tuple, Union, Any
 from pathlib import Path
 import logging
 from generative.networks.nets import VQVAE
-from Prima_training_and_evaluation.model import CLIP
+# CLIP imported lazily in load_prima_model() to avoid pulling in transformers until needed
+
+
+class FullMRIModel(torch.nn.Module):
+    """
+    Full PRIMA model: CLIP visual encoder + diagnosis, referral, and priority heads.
+    Same structure as used for training; can be built from components or loaded from a single checkpoint.
+    """
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.clipmodel = torch.load(config["clip_ckpt"], map_location="cpu").module
+        self.clipvisualmodel = self.clipmodel.visual_model
+        self.clipvisualmodel.patdis = False
+
+        self.diagnosisheads = {}
+        headjson = json.load(open(config["diagnosis_heads_json"]))
+        for name in headjson:
+            headpath, idx, thresh = headjson[name][1][0]
+            head = torch.load(headpath, map_location="cpu")
+            head.thresh = float(thresh)
+            self.diagnosisheads[name] = [head, idx]
+        self.m1 = torch.nn.ModuleList([self.diagnosisheads[a][0] for a in self.diagnosisheads])
+
+        self.referralheads = {}
+        headjson = json.load(open(config["referral_heads_json"]))
+        for name in headjson:
+            headpath, idx, thresh = headjson[name][1][0]
+            head = torch.load(headpath, map_location="cpu")
+            head.thresh = float(thresh)
+            self.referralheads[name] = [head, idx]
+        self.m2 = torch.nn.ModuleList([self.referralheads[a][0] for a in self.referralheads])
+
+        self.priorityhead = torch.load(config["priority_head_ckpt"], map_location="cpu")
+
+    def forward(self, x: Dict[str, Any]) -> Dict[str, Any]:
+        clip_embed = self.clipvisualmodel(x, retpool=True)
+        retdict = {
+            "diagnosis": {},
+            "referral": {},
+            "priority": {},
+            "clip_emb": clip_embed.detach().cpu(),
+        }
+        for name in self.diagnosisheads:
+            head, idx = self.diagnosisheads[name]
+            retdict["diagnosis"][name] = head(clip_embed)[:, idx] - head.thresh
+        for name in self.referralheads:
+            head, idx = self.referralheads[name]
+            retdict["referral"][name] = head(clip_embed)[:, idx] - head.thresh
+        priorityout = self.priorityhead(clip_embed)
+        if len(priorityout[0]) == 4:
+            retdict["priority"]["none"] = priorityout[:, 0]
+            retdict["priority"]["low"] = priorityout[:, 1]
+            retdict["priority"]["medium"] = priorityout[:, 2]
+            retdict["priority"]["high"] = priorityout[:, 3]
+        else:
+            retdict["priority"]["none"] = priorityout[:, 0]
+            retdict["priority"]["low"] = priorityout[:, 1]
+            retdict["priority"]["high"] = priorityout[:, 2]
+        return retdict
+
+    def forward_one_diag_only(self, x: Dict[str, Any], diagname: str) -> torch.Tensor:
+        clip_embed = self.clipvisualmodel(x, retpool=True)
+        head, idx = self.diagnosisheads[diagname]
+        return head(clip_embed)[:, idx] - head.thresh
+
+    def make_no_flashattn(self) -> None:
+        self.clipvisualmodel.make_no_flashattn()
 
 
 class PrimaModelWHeads(torch.nn.Module):
@@ -203,21 +271,18 @@ class ModelLoader:
             raise RuntimeError(f"Failed to load VQVAE model: {str(e)}")
 
     @staticmethod
-    def load_prima_model(config: Dict[str, Any]) -> CLIP:
+    def load_prima_model(config: Dict[str, Any]):
         """
-        Load the PRIMA model.
+        Load the PRIMA model (CLIP only).
         
         Args:
             config: Dictionary containing model configuration
             
         Returns:
             CLIP model instance
-            
-        Raises:
-            FileNotFoundError: If checkpoint file is not found
-            ValueError: If configuration is invalid
         """
         try:
+            from Prima_training_and_evaluation.model import CLIP
             model_config = config['prima_config']
             if not model_config:
                 raise ValueError("Missing PRIMA model configuration")
@@ -287,45 +352,43 @@ class ModelLoader:
             raise RuntimeError(f"Failed to load classification heads: {str(e)}")
 
     @staticmethod
-    def load_full_prima_model(config: Dict[str, Any]) -> PrimaModelWHeads:
+    def load_full_prima_model(config: Dict[str, Any]) -> torch.nn.Module:
         """
-        Load the complete PRIMA model including all components.
+        Load the complete PRIMA model (FullMRIModel).
         
-        Args:
-            config: Dictionary containing model configuration.
-                   If key 'full_model_ckpt' is present, load that single checkpoint.
-                   Otherwise expects clip_ckpt, diagnosis_heads_json, referral_heads_json, priority_head_ckpt.
-            
+        Config may specify:
+        - full_model_ckpt: path to a single saved FullMRIModel checkpoint (recommended).
+        - Or component keys: clip_ckpt, diagnosis_heads_json, referral_heads_json, priority_head_ckpt.
+        
         Returns:
-            Complete PRIMA model instance
-            
-        Raises:
-            ValueError: If configuration is invalid
-            FileNotFoundError: If model files are not found
+            FullMRIModel instance
         """
         try:
             if not config:
                 raise ValueError("Empty configuration provided")
 
-            # Single full-model checkpoint (e.g. for testing)
+            # Single full-model checkpoint: path is given in config (e.g. from pipeline config file)
             if "full_model_ckpt" in config:
                 ckpt_path = Path(config["full_model_ckpt"])
                 if not ckpt_path.exists():
                     raise FileNotFoundError(f"Full model checkpoint not found at {ckpt_path}")
                 logging.info(f"Loading full PRIMA model from {ckpt_path}")
-                full_model = torch.load(ckpt_path, map_location="cpu")
+                # Allow checkpoints saved as complete_visual_model.FullMRIModel to deserialize
+                sys.modules["complete_visual_model"] = sys.modules["tools.models"]
+                full_model = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+                if "complete_visual_model" in sys.modules and sys.modules["complete_visual_model"] is sys.modules["tools.models"]:
+                    del sys.modules["complete_visual_model"]
                 if hasattr(full_model, "module"):
                     full_model = full_model.module
-                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 full_model = full_model.to(device)
                 return full_model
 
             # Build from components
-            full_model = PrimaModelWHeads(config)
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            full_model = FullMRIModel(config)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             full_model = full_model.to(device)
-            
             return full_model
-            
+
         except Exception as e:
             raise RuntimeError(f"Failed to load full PRIMA model: {str(e)}")
