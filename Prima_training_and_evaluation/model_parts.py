@@ -6,7 +6,11 @@ from perceiver_pytorch import Perceiver
 from einops import rearrange, repeat
 from positional_encodings.torch_encodings import PositionalEncoding1D
 from einops.layers.torch import Rearrange
-from flash_attn import flash_attn_qkvpacked_func, flash_attn_varlen_qkvpacked_func
+try:
+    from flash_attn import flash_attn_qkvpacked_func, flash_attn_varlen_qkvpacked_func
+except ImportError:
+    flash_attn_qkvpacked_func = None
+    flash_attn_varlen_qkvpacked_func = None
 # helpers
 
 
@@ -66,9 +70,6 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 
-from flash_attn import flash_attn_qkvpacked_func, flash_attn_varlen_qkvpacked_func
-
-
 class Attention(nn.Module):
     """Multi-head attention with optional flash attention support."""
 
@@ -104,7 +105,7 @@ class Attention(nn.Module):
             self.causal = False
         bxs, embsize = x.size()
         qkv = self.to_qkv(x).view(bxs, 3, self.heads, self.dim_head)
-        if hasattr(self, 'noflashattn') and self.noflashattn:
+        if (hasattr(self, 'noflashattn') and self.noflashattn) or flash_attn_varlen_qkvpacked_func is None:
             out = no_flash_attn_varlen_substitute(qkv, culen.type(torch.int32))
         else:
             out = flash_attn_varlen_qkvpacked_func(

@@ -1,4 +1,5 @@
 import json
+import pickle
 import sys
 import torch
 from typing import Dict, Optional, Tuple, Union, Any
@@ -6,6 +7,9 @@ from pathlib import Path
 import logging
 from generative.networks.nets import VQVAE
 # CLIP imported lazily in load_prima_model() to avoid pulling in transformers until needed
+
+# Repo root (directory containing "tools" and "Prima_training_and_evaluation") for lazy imports
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class FullMRIModel(torch.nn.Module):
@@ -373,11 +377,99 @@ class ModelLoader:
                 if not ckpt_path.exists():
                     raise FileNotFoundError(f"Full model checkpoint not found at {ckpt_path}")
                 logging.info(f"Loading full PRIMA model from {ckpt_path}")
-                # Allow checkpoints saved as complete_visual_model.FullMRIModel to deserialize
-                sys.modules["complete_visual_model"] = sys.modules["tools.models"]
-                full_model = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
-                if "complete_visual_model" in sys.modules and sys.modules["complete_visual_model"] is sys.modules["tools.models"]:
-                    del sys.modules["complete_visual_model"]
+                # Ensure repo root is on path so Prima_training_and_evaluation can be imported
+                _repo_root_str = str(_REPO_ROOT)
+                if _repo_root_str not in sys.path:
+                    sys.path.insert(0, _repo_root_str)
+                # Allow checkpoints saved under different module paths to deserialize
+                this_module = sys.modules["tools.models"]
+                sys.modules["complete_visual_model"] = this_module
+                _main = sys.modules.get("__main__")
+                _saved_main_fullmri = getattr(_main, "FullMRIModel", None) if _main is not None else None
+                if _main is not None:
+                    setattr(_main, "FullMRIModel", FullMRIModel)
+                _saved_model = sys.modules.get("model")
+                _saved_model_parts = sys.modules.get("model_parts")
+                _saved_patchify = sys.modules.get("patchify")
+                # Some environments have a package with missing Version in metadata; patch to avoid KeyError
+                _version_patch_applied = False
+                _orig_fget = None
+                try:
+                    import importlib_metadata
+                    _Distribution = getattr(importlib_metadata, "Distribution", None)
+                    if _Distribution is not None and hasattr(_Distribution, "version"):
+                        _orig_fget = _Distribution.version.fget
+                        def _safe_version(self):
+                            try:
+                                return self.metadata["Version"]
+                            except KeyError:
+                                # Metadata missing Version (and possibly Name); return a version that
+                                # satisfies transformers' packaging>=20.0 without reading self.name
+                                return "20.0"
+                        _Distribution.version = property(_safe_version)
+                        _version_patch_applied = True
+                except Exception:
+                    pass
+                # Custom unpickler: resolve 'model' and 'model_parts' to Prima_training_and_evaluation submodules on demand
+                def _prima_find_class(mod_name, name):
+                    if mod_name == "model":
+                        import Prima_training_and_evaluation.model as _m
+                        sys.modules["model"] = _m
+                        return getattr(_m, name)
+                    if mod_name == "model_parts":
+                        import Prima_training_and_evaluation.model_parts as _mp
+                        sys.modules["model_parts"] = _mp
+                        return getattr(_mp, name)
+                    if mod_name == "patchify":
+                        import Prima_training_and_evaluation.patchify as _pf
+                        sys.modules["patchify"] = _pf
+                        return getattr(_pf, name)
+                    return None
+
+                class _PrimaUnpickler(pickle.Unpickler):
+                    def find_class(self, mod_name, name):
+                        res = _prima_find_class(mod_name, name)
+                        if res is not None:
+                            return res
+                        return super().find_class(mod_name, name)
+
+                _prima_pickle = type(sys)("pickle")
+                _prima_pickle.Unpickler = _PrimaUnpickler
+                for _attr in ("loads", "load", "dumps", "dump", "Pickler", "HIGHEST_PROTOCOL", "DEFAULT_PROTOCOL"):
+                    if hasattr(pickle, _attr):
+                        setattr(_prima_pickle, _attr, getattr(pickle, _attr))
+                try:
+                    full_model = torch.load(
+                        str(ckpt_path), map_location="cpu", weights_only=False, pickle_module=_prima_pickle
+                    )
+                finally:
+                    if _version_patch_applied:
+                        try:
+                            import importlib_metadata
+                            _D = getattr(importlib_metadata, "Distribution", None)
+                            if _D is not None and _orig_fget is not None:
+                                _D.version = property(_orig_fget)
+                        except Exception:
+                            pass
+                    if sys.modules.get("complete_visual_model") is this_module:
+                        del sys.modules["complete_visual_model"]
+                    if _saved_model is not None:
+                        sys.modules["model"] = _saved_model
+                    elif "model" in sys.modules and sys.modules["model"].__name__ == "Prima_training_and_evaluation.model":
+                        del sys.modules["model"]
+                    if _saved_model_parts is not None:
+                        sys.modules["model_parts"] = _saved_model_parts
+                    elif "model_parts" in sys.modules and sys.modules["model_parts"].__name__ == "Prima_training_and_evaluation.model_parts":
+                        del sys.modules["model_parts"]
+                    if _saved_patchify is not None:
+                        sys.modules["patchify"] = _saved_patchify
+                    elif "patchify" in sys.modules and sys.modules["patchify"].__name__ == "Prima_training_and_evaluation.patchify":
+                        del sys.modules["patchify"]
+                    if _main is not None:
+                        if _saved_main_fullmri is not None:
+                            setattr(_main, "FullMRIModel", _saved_main_fullmri)
+                        elif hasattr(_main, "FullMRIModel") and getattr(_main, "FullMRIModel") is FullMRIModel:
+                            delattr(_main, "FullMRIModel")
                 if hasattr(full_model, "module"):
                     full_model = full_model.module
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -391,4 +483,11 @@ class ModelLoader:
             return full_model
 
         except Exception as e:
-            raise RuntimeError(f"Failed to load full PRIMA model: {str(e)}")
+            msg = str(e)
+            hint = ""
+            if "No module named " in msg:
+                import re
+                m = re.search(r"No module named ['\"]([^'\"]+)['\"]", msg)
+                if m:
+                    hint = f" Try: pip install {m.group(1)}"
+            raise RuntimeError(f"Failed to load full PRIMA model: {msg}{hint}")

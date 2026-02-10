@@ -101,3 +101,7 @@ class MedicalImagePatchifier(torch.nn.Module):
             processed_tokens.append(processed_token)
 
         return processed_tokens
+
+
+# Alias for checkpoints saved when this class was named RachelDatasetPatchifier
+RachelDatasetPatchifier = MedicalImagePatchifier
