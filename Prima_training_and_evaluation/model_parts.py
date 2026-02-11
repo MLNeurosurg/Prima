@@ -431,6 +431,9 @@ class HierViT(nn.Module):
         counter = 0  # counter tracks the location we're at in filling newx
         slens = []
 
+        if not hasattr(self.innerViT,"dim"):
+            self.innerViT.dim = 289
+
         # batch process serienamevecs
         serienameencoded = torch.zeros(len(lens), len(lenss),
                                        self.innerViT.dim).to(

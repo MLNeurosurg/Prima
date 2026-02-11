@@ -89,22 +89,20 @@ def preprocess_shortened_text(text: str, text_limit: int, tokenizer: Any,
     return ret[:-1]
 
 
-def convert_serienames_to_tensor(serienames: List[List[str]]) -> torch.Tensor:
-    """Convert series names to tensor format.
-    
-    Args:
-        serienames: List of series names
-        
-    Returns:
-        Tensor of encoded series names
-    """
-    # Find max dimensions
-    max1 = max(len(b1) for b1 in serienames)
-    max2 = max(len(b2) for b1 in serienames for b2 in b1)
-
-    # Create tensor and fill
-    ret = torch.zeros(len(serienames), max1, max2, dtype=torch.long)
-    for i, batch in enumerate(serienames):
-        for j, name in enumerate(batch):
-            ret[i, j, :len(name)] = torch.tensor([ord(c) for c in name])
+# This is basically a collate function for serienames
+def convert_serienames_to_tensor(serienames):
+    tensors = []
+    max1 = 0
+    max2 = 0
+    for b1 in serienames:
+        if len(b1) > max1:
+            max1 = len(b1)
+        for b2 in b1:
+            if len(b2) > max2:
+                max2 = len(b2)
+    ret = torch.zeros(len(serienames),max1,max2).long()
+    for i in range(len(serienames)):
+        for j in range(len(serienames[i])):
+            t = serienames[i][j]
+            ret[i][j][0:len(t)] = t
     return ret

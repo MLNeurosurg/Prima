@@ -6,6 +6,7 @@ from typing import Dict, Optional, Tuple, Union, Any
 from pathlib import Path
 import logging
 from generative.networks.nets import VQVAE
+from tqdm import tqdm
 # CLIP imported lazily in load_prima_model() to avoid pulling in transformers until needed
 
 # Repo root (directory containing "tools" and "Prima_training_and_evaluation") for lazy imports
@@ -44,7 +45,8 @@ class FullMRIModel(torch.nn.Module):
 
         self.priorityhead = torch.load(config["priority_head_ckpt"], map_location="cpu")
 
-    def forward(self, x: Dict[str, Any]) -> Dict[str, Any]:
+    def forward(self, x: Dict[str, Any], inference_only_once = False) -> Dict[str, Any]:
+        print("Running CLIP embeddings ...")
         clip_embed = self.clipvisualmodel(x, retpool=True)
         retdict = {
             "diagnosis": {},
@@ -52,12 +54,21 @@ class FullMRIModel(torch.nn.Module):
             "priority": {},
             "clip_emb": clip_embed.detach().cpu(),
         }
-        for name in self.diagnosisheads:
+        print("Running diagnostic heads ...")
+        for name in tqdm(self.diagnosisheads):
             head, idx = self.diagnosisheads[name]
-            retdict["diagnosis"][name] = head(clip_embed)[:, idx] - head.thresh
-        for name in self.referralheads:
+            device_head = head.to(clip_embed.device)
+            retdict["diagnosis"][name] = device_head(clip_embed)[:, idx] - head.thresh
+            if inference_only_once: # doing this to save GPU memory
+                device_head = device_head.cpu()
+        print("Running referral heads ...")
+        for name in tqdm(self.referralheads):
             head, idx = self.referralheads[name]
-            retdict["referral"][name] = head(clip_embed)[:, idx] - head.thresh
+            device_head = head.to(clip_embed.device)
+            retdict["referral"][name] = device_head(clip_embed)[:, idx] - head.thresh
+            if inference_only_once: # doing this to save GPU memory
+                device_head = device_head.cpu()
+        print("Running priorization heads ...")
         priorityout = self.priorityhead(clip_embed)
         if len(priorityout[0]) == 4:
             retdict["priority"]["none"] = priorityout[:, 0]

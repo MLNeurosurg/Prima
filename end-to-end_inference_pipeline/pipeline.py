@@ -46,7 +46,8 @@ from torch.utils.data import DataLoader
 from tools.DicomUtils import DicomUtils
 from tools.models import ModelLoader
 from tools.mrcommondataset import MrVoxelDataset
-from tools.utilities import chartovec
+from tools.utilities import chartovec, convert_serienames_to_tensor
+from Prima_training_and_evaluation.patchify import MedicalImagePatchifier
 
 
 @dataclass
@@ -90,6 +91,7 @@ class Pipeline:
         # Initialize models as None
         self.tokenizer_model = None
         self.prima_model = None
+        self.patchifier = MedicalImagePatchifier(in_dim = 256)
 
     def _setup_logging(self) -> None:
         """Set up logging configuration."""
@@ -226,8 +228,23 @@ class Pipeline:
                     series_names = [f"series_{i}" for i in range(len(series_embeddings))]
             assert series_embeddings is not None and series_names is not None and len(series_embeddings) == len(series_names)
 
-            # Prepare visual input for HierViT: list of tensors, each (1, num_tokens, emb_dim) for batch_size=1
-            visuals = [emb.unsqueeze(0) if emb.dim() == 2 else emb for emb in series_embeddings]
+            # Create lengths tensors
+            study_lens = torch.tensor([len(series_embeddings)], dtype=torch.long)
+            serie_lenss = torch.tensor([len(v) for v in series_embeddings], dtype=torch.long).unsqueeze(0)
+
+            # Prepare visual input for HierViT: patchify and pad
+            patched = self.patchifier(series_embeddings, coords = None) # if has otsu-filtered coordinates, replace this with otsu coordinates
+            max_len = serie_lenss.max()
+            visuals = []
+            for img in patched:
+                sizes = list(img.shape)
+                h = sizes[0]
+                img_pad_len = max_len - len(img)
+                sizes[0] = img_pad_len
+                img_pad = torch.zeros(sizes)
+                visuals.append(torch.cat([img, img_pad], dim=0).unsqueeze(0))
+            
+
             
             # Create series name tensors
             # The model expects serienames as a list where each element is a tensor of shape [num_series, max_chars]
@@ -239,23 +256,19 @@ class Pipeline:
             serienames_tensor = torch.zeros(num_series, max_seriename_len, dtype=torch.long)
             for i, t in enumerate(seriename_tensors):
                 serienames_tensor[i, :len(t)] = t
-            # Wrap in a list for batch dimension (single study)
-            serienames = [serienames_tensor]
+            serienames = serienames_tensor.unsqueeze(0)
             
             # Create study description tensor
-            study_desc = torch.tensor([ord(c) for c in "MRI BRAIN"], dtype=torch.long)
+            study_desc = chartovec("MR BRAIN W CONTRAST").unsqueeze(0)
             
-            # Create lengths tensors
-            study_lens = torch.tensor([len(series_embeddings)], dtype=torch.long)
-            serie_lenss = torch.tensor([[len(v) for v in visuals]], dtype=torch.long)
-            
+        
             return {
                 'visual': visuals,
                 'lens': study_lens,
                 'lenss': serie_lenss,
                 'hash': ["study_0"],
                 'serienames': serienames,
-                'studydescription': study_desc.unsqueeze(0)
+                'studydescription': study_desc
             }
         except Exception as e:
             self.logger.error(f'Failed to prepare Prima input: {str(e)}')
@@ -382,7 +395,7 @@ class Pipeline:
             with torch.no_grad():
                 if device_type == 'cuda':
                     with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
-                        predictions = self.prima_model(prima_input)
+                        predictions = self.prima_model(prima_input, inference_only_once = True)
                 else:
                     predictions = self.prima_model(prima_input)
 
