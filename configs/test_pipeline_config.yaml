@@ -1,9 +1,0 @@
-# Test pipeline config — paths relative to repo root
-study_dir: test/test_mri_case/MMED40045711
-output_dir: test/test_output
-
-# Tokenizer (VQ-VAE) config path
-tokenizer_model_config: test/trained_models/tokenizer_model/config.json
-
-# Full PRIMA model: single checkpoint (or path to JSON with clip_ckpt + heads)
-prima_model_config: test/trained_models/prima_config.json
