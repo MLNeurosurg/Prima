@@ -34,3 +34,8 @@ Expected output JSON file structure:
 }
 ```
 
+To run the end-to-end pipeline, first you need to download both the Prima model and head weights (link to be provided) and the VQ-VAE weights (link to be provided), then update `configs/pipeline_config.yaml` with and fill in `study_dir` (where you stored your study data), `output_dir` (where do you want the output json to be stored), `ckpt_dir` under `tokenizer_model_config` to be where you stored the VQVAE checkpoint, and `full_model_ckpt` under `prima_model_config` to where you stored the Prima model and head weight pt file. Then, from the main repository directory, run
+```
+python /end-to-end_inference_pipeline/pipeline.py --config configs/pipeline_config.yaml
+```
+
