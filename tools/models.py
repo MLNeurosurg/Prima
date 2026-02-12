@@ -402,25 +402,6 @@ class ModelLoader:
                 _saved_model = sys.modules.get("model")
                 _saved_model_parts = sys.modules.get("model_parts")
                 _saved_patchify = sys.modules.get("patchify")
-                # Some environments have a package with missing Version in metadata; patch to avoid KeyError
-                _version_patch_applied = False
-                _orig_fget = None
-                try:
-                    import importlib_metadata
-                    _Distribution = getattr(importlib_metadata, "Distribution", None)
-                    if _Distribution is not None and hasattr(_Distribution, "version"):
-                        _orig_fget = _Distribution.version.fget
-                        def _safe_version(self):
-                            try:
-                                return self.metadata["Version"]
-                            except KeyError:
-                                # Metadata missing Version (and possibly Name); return a version that
-                                # satisfies transformers' packaging>=20.0 without reading self.name
-                                return "20.0"
-                        _Distribution.version = property(_safe_version)
-                        _version_patch_applied = True
-                except Exception:
-                    pass
                 # Custom unpickler: resolve 'model' and 'model_parts' to Prima_training_and_evaluation submodules on demand
                 def _prima_find_class(mod_name, name):
                     if mod_name == "model":
@@ -454,14 +435,6 @@ class ModelLoader:
                         str(ckpt_path), map_location="cpu", weights_only=False, pickle_module=_prima_pickle
                     )
                 finally:
-                    if _version_patch_applied:
-                        try:
-                            import importlib_metadata
-                            _D = getattr(importlib_metadata, "Distribution", None)
-                            if _D is not None and _orig_fget is not None:
-                                _D.version = property(_orig_fget)
-                        except Exception:
-                            pass
                     if sys.modules.get("complete_visual_model") is this_module:
                         del sys.modules["complete_visual_model"]
                     if _saved_model is not None:

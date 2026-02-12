@@ -1,0 +1,9 @@
+# Test pipeline config — paths relative to repo root
+study_dir: test/test_mri_case/MMED0000000
+output_dir: test/test_output
+
+# Tokenizer: path to JSON with vqvae_config (+ optional ckpt_path)
+tokenizer_model_config: test/trained_models/tokenizer_model/config.json
+
+# PRIMA: path to JSON with full_model_ckpt or component paths (paths in that file relative to its directory)
+prima_model_config: test/trained_models/prima_config_components.json

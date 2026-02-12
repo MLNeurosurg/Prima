@@ -418,11 +418,10 @@ class Pipeline:
             
             predictions_serializable = tensor_to_serializable(predictions)
             
-            # Save predictions
-            output_path = self.output_dir / 'predictions.json'
+            # Save predictions (resolve to absolute so path is unambiguous)
+            output_path = (self.output_dir / 'predictions.json').resolve()
             with open(output_path, 'w') as f:
                 json.dump(predictions_serializable, f, indent=2)
-                
             self.logger.info(f'Predictions saved to {output_path}')
             return predictions
         except Exception as e:

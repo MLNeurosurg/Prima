@@ -1,0 +1,7 @@
+{
+  "_comment": "Alternative: load PRIMA from separate CLIP + head checkpoints. Paths relative to this file's directory.",
+  "clip_ckpt": "path/to/clip_model.pt",
+  "diagnosis_heads_json": "path/to/diagnosis_heads.json",
+  "referral_heads_json": "path/to/referral_heads.json",
+  "priority_head_ckpt": "path/to/priority_head.pt"
+}

@@ -1,0 +1,4 @@
+{
+  "_comment": "Option A: single full checkpoint. Path relative to this config file's directory.",
+  "full_model_ckpt": "path/to/primafullmodel.pt"
+}
