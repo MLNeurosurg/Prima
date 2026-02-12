@@ -2,7 +2,7 @@ import torch
 from typing import Dict, Tuple, Union, Optional
 from transformers import GPT2Model
 from .model_parts import ViT, GPTWrapper, HierViT, SerieTransformerEncoder
-from patchify import MedicalImagePatchifier
+from .patchify import MedicalImagePatchifier
 
 
 class CLIP(torch.nn.Module):

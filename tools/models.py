@@ -1,10 +1,93 @@
 import json
+import pickle
+import sys
 import torch
 from typing import Dict, Optional, Tuple, Union, Any
 from pathlib import Path
 import logging
 from generative.networks.nets import VQVAE
-from Prima_training_and_evaluation.model import CLIP
+from tqdm import tqdm
+# CLIP imported lazily in load_prima_model() to avoid pulling in transformers until needed
+
+# Repo root (directory containing "tools" and "Prima_training_and_evaluation") for lazy imports
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+class FullMRIModel(torch.nn.Module):
+    """
+    Full PRIMA model: CLIP visual encoder + diagnosis, referral, and priority heads.
+    Same structure as used for training; can be built from components or loaded from a single checkpoint.
+    """
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.clipmodel = torch.load(config["clip_ckpt"], map_location="cpu").module
+        self.clipvisualmodel = self.clipmodel.visual_model
+        self.clipvisualmodel.patdis = False
+
+        self.diagnosisheads = {}
+        headjson = json.load(open(config["diagnosis_heads_json"]))
+        for name in headjson:
+            headpath, idx, thresh = headjson[name][1][0]
+            head = torch.load(headpath, map_location="cpu")
+            head.thresh = float(thresh)
+            self.diagnosisheads[name] = [head, idx]
+        self.m1 = torch.nn.ModuleList([self.diagnosisheads[a][0] for a in self.diagnosisheads])
+
+        self.referralheads = {}
+        headjson = json.load(open(config["referral_heads_json"]))
+        for name in headjson:
+            headpath, idx, thresh = headjson[name][1][0]
+            head = torch.load(headpath, map_location="cpu")
+            head.thresh = float(thresh)
+            self.referralheads[name] = [head, idx]
+        self.m2 = torch.nn.ModuleList([self.referralheads[a][0] for a in self.referralheads])
+
+        self.priorityhead = torch.load(config["priority_head_ckpt"], map_location="cpu")
+
+    def forward(self, x: Dict[str, Any], inference_only_once = False) -> Dict[str, Any]:
+        print("Running CLIP embeddings ...")
+        clip_embed = self.clipvisualmodel(x, retpool=True)
+        retdict = {
+            "diagnosis": {},
+            "referral": {},
+            "priority": {},
+            "clip_emb": clip_embed.detach().cpu(),
+        }
+        print("Running diagnostic heads ...")
+        for name in tqdm(self.diagnosisheads):
+            head, idx = self.diagnosisheads[name]
+            device_head = head.to(clip_embed.device)
+            retdict["diagnosis"][name] = device_head(clip_embed)[:, idx] - head.thresh
+            if inference_only_once: # doing this to save GPU memory
+                device_head = device_head.cpu()
+        print("Running referral heads ...")
+        for name in tqdm(self.referralheads):
+            head, idx = self.referralheads[name]
+            device_head = head.to(clip_embed.device)
+            retdict["referral"][name] = device_head(clip_embed)[:, idx] - head.thresh
+            if inference_only_once: # doing this to save GPU memory
+                device_head = device_head.cpu()
+        print("Running priorization heads ...")
+        priorityout = self.priorityhead(clip_embed)
+        if len(priorityout[0]) == 4:
+            retdict["priority"]["none"] = priorityout[:, 0]
+            retdict["priority"]["low"] = priorityout[:, 1]
+            retdict["priority"]["medium"] = priorityout[:, 2]
+            retdict["priority"]["high"] = priorityout[:, 3]
+        else:
+            retdict["priority"]["none"] = priorityout[:, 0]
+            retdict["priority"]["low"] = priorityout[:, 1]
+            retdict["priority"]["high"] = priorityout[:, 2]
+        return retdict
+
+    def forward_one_diag_only(self, x: Dict[str, Any], diagname: str) -> torch.Tensor:
+        clip_embed = self.clipvisualmodel(x, retpool=True)
+        head, idx = self.diagnosisheads[diagname]
+        return head(clip_embed)[:, idx] - head.thresh
+
+    def make_no_flashattn(self) -> None:
+        self.clipvisualmodel.make_no_flashattn()
 
 
 class PrimaModelWHeads(torch.nn.Module):
@@ -203,21 +286,18 @@ class ModelLoader:
             raise RuntimeError(f"Failed to load VQVAE model: {str(e)}")
 
     @staticmethod
-    def load_prima_model(config: Dict[str, Any]) -> CLIP:
+    def load_prima_model(config: Dict[str, Any]):
         """
-        Load the PRIMA model.
+        Load the PRIMA model (CLIP only).
         
         Args:
             config: Dictionary containing model configuration
             
         Returns:
             CLIP model instance
-            
-        Raises:
-            FileNotFoundError: If checkpoint file is not found
-            ValueError: If configuration is invalid
         """
         try:
+            from Prima_training_and_evaluation.model import CLIP
             model_config = config['prima_config']
             if not model_config:
                 raise ValueError("Missing PRIMA model configuration")
@@ -287,31 +367,138 @@ class ModelLoader:
             raise RuntimeError(f"Failed to load classification heads: {str(e)}")
 
     @staticmethod
-    def load_full_prima_model(config: Dict[str, Any]) -> PrimaModelWHeads:
+    def load_full_prima_model(config: Dict[str, Any]) -> torch.nn.Module:
         """
-        Load the complete PRIMA model including all components.
+        Load the complete PRIMA model (FullMRIModel).
         
-        Args:
-            config: Dictionary containing model configuration
-            
+        Config may specify:
+        - full_model_ckpt: path to a single saved FullMRIModel checkpoint (recommended).
+        - Or component keys: clip_ckpt, diagnosis_heads_json, referral_heads_json, priority_head_ckpt.
+        
         Returns:
-            Complete PRIMA model instance
-            
-        Raises:
-            ValueError: If configuration is invalid
-            FileNotFoundError: If model files are not found
+            FullMRIModel instance
         """
         try:
             if not config:
                 raise ValueError("Empty configuration provided")
 
-            # Create the full model with heads
-            full_model = PrimaModelWHeads(config)
-            # Move to appropriate device
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            # Single full-model checkpoint: path is given in config (e.g. from pipeline config file)
+            if "full_model_ckpt" in config:
+                ckpt_path = Path(config["full_model_ckpt"])
+                if not ckpt_path.exists():
+                    raise FileNotFoundError(f"Full model checkpoint not found at {ckpt_path}")
+                logging.info(f"Loading full PRIMA model from {ckpt_path}")
+                # Ensure repo root is on path so Prima_training_and_evaluation can be imported
+                _repo_root_str = str(_REPO_ROOT)
+                if _repo_root_str not in sys.path:
+                    sys.path.insert(0, _repo_root_str)
+                # Allow checkpoints saved under different module paths to deserialize
+                this_module = sys.modules["tools.models"]
+                sys.modules["complete_visual_model"] = this_module
+                _main = sys.modules.get("__main__")
+                _saved_main_fullmri = getattr(_main, "FullMRIModel", None) if _main is not None else None
+                if _main is not None:
+                    setattr(_main, "FullMRIModel", FullMRIModel)
+                _saved_model = sys.modules.get("model")
+                _saved_model_parts = sys.modules.get("model_parts")
+                _saved_patchify = sys.modules.get("patchify")
+                # Some environments have a package with missing Version in metadata; patch to avoid KeyError
+                _version_patch_applied = False
+                _orig_fget = None
+                try:
+                    import importlib_metadata
+                    _Distribution = getattr(importlib_metadata, "Distribution", None)
+                    if _Distribution is not None and hasattr(_Distribution, "version"):
+                        _orig_fget = _Distribution.version.fget
+                        def _safe_version(self):
+                            try:
+                                return self.metadata["Version"]
+                            except KeyError:
+                                # Metadata missing Version (and possibly Name); return a version that
+                                # satisfies transformers' packaging>=20.0 without reading self.name
+                                return "20.0"
+                        _Distribution.version = property(_safe_version)
+                        _version_patch_applied = True
+                except Exception:
+                    pass
+                # Custom unpickler: resolve 'model' and 'model_parts' to Prima_training_and_evaluation submodules on demand
+                def _prima_find_class(mod_name, name):
+                    if mod_name == "model":
+                        import Prima_training_and_evaluation.model as _m
+                        sys.modules["model"] = _m
+                        return getattr(_m, name)
+                    if mod_name == "model_parts":
+                        import Prima_training_and_evaluation.model_parts as _mp
+                        sys.modules["model_parts"] = _mp
+                        return getattr(_mp, name)
+                    if mod_name == "patchify":
+                        import Prima_training_and_evaluation.patchify as _pf
+                        sys.modules["patchify"] = _pf
+                        return getattr(_pf, name)
+                    return None
+
+                class _PrimaUnpickler(pickle.Unpickler):
+                    def find_class(self, mod_name, name):
+                        res = _prima_find_class(mod_name, name)
+                        if res is not None:
+                            return res
+                        return super().find_class(mod_name, name)
+
+                _prima_pickle = type(sys)("pickle")
+                _prima_pickle.Unpickler = _PrimaUnpickler
+                for _attr in ("loads", "load", "dumps", "dump", "Pickler", "HIGHEST_PROTOCOL", "DEFAULT_PROTOCOL"):
+                    if hasattr(pickle, _attr):
+                        setattr(_prima_pickle, _attr, getattr(pickle, _attr))
+                try:
+                    full_model = torch.load(
+                        str(ckpt_path), map_location="cpu", weights_only=False, pickle_module=_prima_pickle
+                    )
+                finally:
+                    if _version_patch_applied:
+                        try:
+                            import importlib_metadata
+                            _D = getattr(importlib_metadata, "Distribution", None)
+                            if _D is not None and _orig_fget is not None:
+                                _D.version = property(_orig_fget)
+                        except Exception:
+                            pass
+                    if sys.modules.get("complete_visual_model") is this_module:
+                        del sys.modules["complete_visual_model"]
+                    if _saved_model is not None:
+                        sys.modules["model"] = _saved_model
+                    elif "model" in sys.modules and sys.modules["model"].__name__ == "Prima_training_and_evaluation.model":
+                        del sys.modules["model"]
+                    if _saved_model_parts is not None:
+                        sys.modules["model_parts"] = _saved_model_parts
+                    elif "model_parts" in sys.modules and sys.modules["model_parts"].__name__ == "Prima_training_and_evaluation.model_parts":
+                        del sys.modules["model_parts"]
+                    if _saved_patchify is not None:
+                        sys.modules["patchify"] = _saved_patchify
+                    elif "patchify" in sys.modules and sys.modules["patchify"].__name__ == "Prima_training_and_evaluation.patchify":
+                        del sys.modules["patchify"]
+                    if _main is not None:
+                        if _saved_main_fullmri is not None:
+                            setattr(_main, "FullMRIModel", _saved_main_fullmri)
+                        elif hasattr(_main, "FullMRIModel") and getattr(_main, "FullMRIModel") is FullMRIModel:
+                            delattr(_main, "FullMRIModel")
+                if hasattr(full_model, "module"):
+                    full_model = full_model.module
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                full_model = full_model.to(device)
+                return full_model
+
+            # Build from components
+            full_model = FullMRIModel(config)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             full_model = full_model.to(device)
-            
             return full_model
-            
+
         except Exception as e:
-            raise RuntimeError(f"Failed to load full PRIMA model: {str(e)}")
+            msg = str(e)
+            hint = ""
+            if "No module named " in msg:
+                import re
+                m = re.search(r"No module named ['\"]([^'\"]+)['\"]", msg)
+                if m:
+                    hint = f" Try: pip install {m.group(1)}"
+            raise RuntimeError(f"Failed to load full PRIMA model: {msg}{hint}")

@@ -28,7 +28,7 @@ class MedicalImagePatchifier(torch.nn.Module):
             d (int): Dimension of 3D positional encoding (must be divisible by 3)
         """
         super().__init__()
-        self.out_dim = in_dim + d
+        self.out_dim = in_dim + d + 3
         assert d % 3 == 0, "Positional encoding dimension must be divisible by 3"
 
         # Initialize 3D positional encoding for a 100x100x100 grid
@@ -74,12 +74,28 @@ class MedicalImagePatchifier(torch.nn.Module):
                 div1, div2, div3 = 32, 32, 4
                 x = x.transpose(2, 4)
 
+            if coords is None:
+                div1,div2,div3 = 1,1,1
+                xc,yc,zc = 8,8,8
+                if orientation[0] == 1:
+                    xc = len(x) // 64
+                if orientation[1] == 1:
+                    yc = len(x) // 64
+                if orientation[2] == 1:
+                    zc = len(x) // 64
+                curr_coords = coordinate_tensor(xc,yc,zc,dtype=torch.long).view(-1,3)
+            else:
+                curr_coords = coords[i]
+                    
+
+
+
             # Create division tensor for coordinate processing
             div_tensor = torch.tensor([div1, div2, div3],
                                       dtype=torch.long).unsqueeze(0)
 
             # Process coordinates to get positional encoding indices
-            div_coords = coords[i] // div_tensor
+            div_coords =  curr_coords // div_tensor
             pos_enc_indices = div_coords[:,
                                          0] * 10000 + div_coords[:,
                                                                  1] * 100 + div_coords[:,
@@ -101,3 +117,21 @@ class MedicalImagePatchifier(torch.nn.Module):
             processed_tokens.append(processed_token)
 
         return processed_tokens
+    
+def coordinate_tensor(x: int, y: int, z: int, device=None, dtype=torch.float32):
+    """
+    Returns a tensor of shape (x, y, z, 3) where
+    tensor[i, j, k] = (i, j, k)
+    """
+    xs = torch.arange(x, device=device, dtype=dtype)
+    ys = torch.arange(y, device=device, dtype=dtype)
+    zs = torch.arange(z, device=device, dtype=dtype)
+
+    grid_x, grid_y, grid_z = torch.meshgrid(xs, ys, zs, indexing='ij')
+
+    coords = torch.stack((grid_x, grid_y, grid_z), dim=-1)
+    return coords
+
+
+# Alias for checkpoints saved when this class was named RachelDatasetPatchifier
+RachelDatasetPatchifier = MedicalImagePatchifier

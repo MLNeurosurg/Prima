@@ -3,7 +3,12 @@ import time
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
-from VolUtils import tokenize_volume, resize_tokens_batch
+from .VolUtils import tokenize_volume, resize_tokens_batch
+
+try:
+    import SimpleITK as sitk
+except ImportError:
+    sitk = None
 
 
 class MrVoxelDataset(Dataset):
@@ -17,6 +22,9 @@ class MrVoxelDataset(Dataset):
 
     def __getitem__(self, idx):
         volume = self.series_volumes[idx]
+        # tokenize_volume expects numpy/torch with .shape; convert SimpleITK Image if needed
+        if sitk is not None and hasattr(volume, "GetSize"):
+            volume = np.asarray(sitk.GetArrayFromImage(volume), dtype=np.float64)
 
         tokens, _, _, _, patch_shape, z_idx = tokenize_volume(volume,
                                                               mask_perc=50)
