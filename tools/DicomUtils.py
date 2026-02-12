@@ -168,7 +168,7 @@ class DicomUtils:
     @staticmethod
     def read_dicom_series(
         directory: str,
-        new_orientation: Optional[str] = None,
+        new_orientation: Optional[str] = 'LPS',
         new_size: Tuple[Optional[int], Optional[int], Optional[int]] = (256, 256, None),
         save_path: Optional[str] = None,
         len_threshold: int = 500
