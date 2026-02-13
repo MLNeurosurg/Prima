@@ -46,7 +46,7 @@ from torch.utils.data import DataLoader
 from tools.DicomUtils import DicomUtils
 from tools.models import ModelLoader
 from tools.mrcommondataset import MrVoxelDataset
-from tools.utilities import chartovec, convert_serienames_to_tensor
+from tools.utilities import chartovec, convert_serienames_to_tensor, filtercoords
 from Prima_training_and_evaluation.patchify import MedicalImagePatchifier
 
 
@@ -209,6 +209,8 @@ class Pipeline:
         self,
         series_embeddings: Optional[List[torch.Tensor]] = None,
         series_names: Optional[List[str]] = None,
+        all_ser_emb_meta: Optional[List[Dict[str, Any]]] = None,
+        otsu_percentage = 5,
     ) -> Dict[str, Any]:
         """
         Prepare the input for the Prima model.
@@ -228,12 +230,28 @@ class Pipeline:
                     series_names = [f"series_{i}" for i in range(len(series_embeddings))]
             assert series_embeddings is not None and series_names is not None and len(series_embeddings) == len(series_names)
 
+            coords = None
+
+            if all_ser_emb_meta is not None:
+                coords = []
+                new_series_embeddings = []
+                for i, ser_emb_meta in enumerate(all_ser_emb_meta):
+                    for percent in range(otsu_percentage, -1,-1):
+                        embs,embspos,_ = filtercoords(ser_emb_meta, percent, series_embeddings[i])
+                        print("Using otsu percentage: " + str(percent) + " for series: " + series_names[i]+" before filtering: "+str(len(series_embeddings[i]))+" after filtering: "+str(len(embs)))
+                        if len(embspos) > 25:
+                            break
+                    new_series_embeddings.append(embs)
+                    coords.append(embspos)
+                series_embeddings = new_series_embeddings
+
             # Create lengths tensors
             study_lens = torch.tensor([len(series_embeddings)], dtype=torch.long)
             serie_lenss = torch.tensor([len(v) for v in series_embeddings], dtype=torch.long).unsqueeze(0)
 
+
             # Prepare visual input for HierViT: patchify and pad
-            patched = self.patchifier(series_embeddings, coords = None) # if has otsu-filtered coordinates, replace this with otsu coordinates
+            patched = self.patchifier(series_embeddings, coords = coords) # if has otsu-filtered coordinates, replace this with otsu coordinates
             max_len = serie_lenss.max()
             visuals = []
             for img in patched:
@@ -295,12 +313,13 @@ class Pipeline:
         dataloader = self.create_dataset(mri_study)
         series_embeddings = []
         filtered_names = [] if series_names is not None else None
-
+        all_ser_emb_meta = []
         try:
             with torch.no_grad():
                 for idx, batch in enumerate(tqdm(dataloader, desc="Processing series")):
                     series_name = (series_names[idx] if series_names is not None else f"series_{idx}")
                     try:
+                        batch, ser_emb_meta = batch
                         token_list = []
                         tokens = batch[0]
                         num_tokens = tokens.shape[0]
@@ -322,6 +341,7 @@ class Pipeline:
                         series_embeddings.append(series_embedding)
                         if filtered_names is not None:
                             filtered_names.append(series_name)
+                        all_ser_emb_meta.append(ser_emb_meta)
                     except Exception as e:
                         self.logger.warning(
                             "Skipping series index=%s name=%s due to error (review later): %s",
@@ -334,7 +354,7 @@ class Pipeline:
                 'Tokenizer model run complete: %d/%d series succeeded',
                 len(series_embeddings), len(mri_study),
             )
-            return series_embeddings, (filtered_names if series_names is not None else None)
+            return series_embeddings, (filtered_names if series_names is not None else None), all_ser_emb_meta
         finally:
             self.tokenizer_model = None
             torch.cuda.empty_cache()
@@ -344,6 +364,7 @@ class Pipeline:
         self,
         series_embeddings: Optional[List[torch.Tensor]] = None,
         series_names: Optional[List[str]] = None,
+        all_ser_emb_meta: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Run the Prima model to get final predictions.
@@ -381,6 +402,7 @@ class Pipeline:
             prima_input = self.prepare_prima_input(
                 series_embeddings=series_embeddings,
                 series_names=series_names,
+                all_ser_emb_meta=all_ser_emb_meta,
             )
             prima_input = move_to_device(prima_input, self.config.device)
 
@@ -460,7 +482,7 @@ if __name__=="__main__":
         pipeline.logger.info(f"Loaded {len(mri_study)} series from study")
         
         # Step 2: Run tokenizer model (pass series_names so failed series are skipped and names stay in sync)
-        series_embeddings, series_names_for_embeddings = pipeline.run_tokenizer_model(
+        series_embeddings, series_names_for_embeddings, all_ser_emb_meta = pipeline.run_tokenizer_model(
             mri_study, series_names=series_names
         )
         if series_names_for_embeddings is not None:
@@ -473,6 +495,7 @@ if __name__=="__main__":
         predictions = pipeline.run_prima_model(
             series_embeddings=series_embeddings,
             series_names=series_names,
+            all_ser_emb_meta=all_ser_emb_meta,
         )
         pipeline.logger.info("Pipeline execution completed successfully")
         

@@ -8,6 +8,25 @@ CHAR_TO_INDEX = {
     for idx, char in enumerate("abcdefghijklmnopqrstuvwxyz_+-0123456789.*(),")
 }
 
+# helper function for filtering coordinates based on otsu percentage
+def filtercoords(meta,percentagetouse,embs,fillhole=True, debuginfo='None'):
+    percentagemeta = meta['OtsuThresholds']
+    uses = []
+    if fillhole:
+        metadict = {}
+        for idx in meta['emb_index']:
+            x,y,z = meta['emb_index'][idx]
+            metadict[x*1000000+y*1000+z] = int(idx)
+    for i in range(percentagetouse,101):
+        uses += percentagemeta[i]['OutfillCoords']
+        if fillhole and i <= 20:
+            infillcoords = percentagemeta[i]['InfillCoords']
+            uses += [(metadict[b[0]*1000000+b[1]*1000+b[2]],b) for b in infillcoords]
+    
+    useids = torch.LongTensor([u[0] for u in uses]) # the embs to use
+    embspos = torch.LongTensor([u[1] for u in uses]) # the coordinates of the embs
+    return embs[useids],embspos,useids
+
 
 def chartovec(s: str) -> torch.Tensor:
     """Convert a string to a tensor of character indices.
