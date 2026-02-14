@@ -19,6 +19,18 @@ This is the official code repository for paper submission "[Learning neuroimagin
 }
 ```
 
+## Model Weights
+
+Download the following weights and place them as indicated in the [end-to-end inference pipeline](end-to-end_inference_pipeline) config (see [configs](configs) for examples).
+
+| Model | Download |
+|-------|----------|
+| **Full PRIMA model** (`primafullmodel107.pt`) | [![Download Full Model](https://img.shields.io/badge/Download-Full_Model_Weights-4285F4?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/file/d/119kKMcdk1GPww69IQAf6JkXuNMIEEAIk/view) |
+| **Tokenizer (VQ-VAE)** (`vqvae_model_step16799.pth`) | [![Download Tokenizer](https://img.shields.io/badge/Download-Tokenizer_Weights-34A853?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/file/d/11EitVfPVXmdPSJviQQ5ZKasFNbQqD5Bt/view?usp=drive_link) |
+
+- **Full model:** use in your PRIMA config as `full_model_ckpt` (e.g. in `prima_config.json` or `sample_prima_config.json`).
+- **Tokenizer:** place the checkpoint path in your tokenizer config’s `vqvae_config.ckpt_path` (e.g. in `config.json` under the tokenizer model directory).
+
 ## Overview
 
 ![1738022426126-795fc098-7897-47f6-941d-8724d4c5638a_1](https://github.com/user-attachments/assets/be841dcb-a446-4e00-b33d-17901c78557f)
