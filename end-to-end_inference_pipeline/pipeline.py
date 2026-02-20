@@ -57,6 +57,7 @@ class PipelineConfig:
     output_dir: str
     tokenizer_model_config: str
     prima_model_config: str
+    study_description: str
     batch_size: int = 1
     num_workers: int = 2
     max_tokens_per_chunk: int = 400
@@ -65,7 +66,7 @@ class PipelineConfig:
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'PipelineConfig':
         """Create a PipelineConfig from a dictionary."""
-        required_keys = ['study_dir', 'output_dir', 'tokenizer_model_config', 'prima_model_config']
+        required_keys = ['study_dir', 'output_dir', 'tokenizer_model_config', 'prima_model_config', 'study_description']
         missing_keys = [key for key in required_keys if key not in config_dict]
         if missing_keys:
             raise ValueError(f"Missing required config keys: {missing_keys}")
@@ -277,7 +278,7 @@ class Pipeline:
             serienames = serienames_tensor.unsqueeze(0)
             
             # Create study description tensor
-            study_desc = chartovec("MR BRAIN W CONTRAST").unsqueeze(0)
+            study_desc = chartovec(self.config.study_description).unsqueeze(0)
             
         
             return {
@@ -320,9 +321,13 @@ class Pipeline:
                     series_name = (series_names[idx] if series_names is not None else f"series_{idx}")
                     try:
                         batch, ser_emb_meta = batch
+                        if batch.view(-1).size() == 0:
+                            raise Exception("No tokens found for "+series_name)
                         token_list = []
                         tokens = batch[0]
                         num_tokens = tokens.shape[0]
+                        if num_tokens > 5000:
+                            raise Exception("Too many tokens for "+series_name)
 
                         # VQ-VAE encoder expects (B, C, D, H, W) with C=1; tokens are (N, D, H, W)
                         num_chunks = (num_tokens + self.config.max_tokens_per_chunk - 1) // self.config.max_tokens_per_chunk

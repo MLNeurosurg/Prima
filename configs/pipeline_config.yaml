@@ -4,6 +4,9 @@ study_dir: "path/to/your/study"
 # Output: directory for pipeline.log and predictions.json
 output_dir: "path/to/output"
 
+# Study description: description of the study
+study_description: "MRI BRAIN WO AND W CONTRAST"
+
 # Tokenizer (VQ-VAE): path to a JSON config file, or omit to use inline config below.
 # Config file must contain a top-level "vqvae_config" with architecture + optional "ckpt_path".
 tokenizer_model_config: "configs/sample_tokenizer_config.json"

@@ -25,7 +25,7 @@ class MrVoxelDataset(Dataset):
         # tokenize_volume expects numpy/torch with .shape; convert SimpleITK Image if needed
         if sitk is not None and hasattr(volume, "GetSize"):
             volume = np.asarray(sitk.GetArrayFromImage(volume), dtype=np.float64)
-
+        
         tokens, coords, otsu, pad_shape, patch_shape, z_idx = tokenize_volume(volume,
                                                               mask_perc=50)
 
@@ -39,10 +39,15 @@ class MrVoxelDataset(Dataset):
                 }
 
         if not tokens:
-            sys.exit("No tokens found")
+            print("No tokens found for a certain sequence in the study.")
+            return torch.tensor([]), ser_emb_meta
 
         patch_shape[z_idx] = 8  #upsacling due to vqvae
-        tokens = resize_tokens_batch(tokens, patch_shape)
+        try:
+            tokens = resize_tokens_batch(tokens, patch_shape)
+        except Exception as e:
+            print(f"Error resizing tokens for volume {idx}: {e}")
+            return torch.tensor([]), ser_emb_meta
         return torch.stack(tokens), ser_emb_meta
 
 

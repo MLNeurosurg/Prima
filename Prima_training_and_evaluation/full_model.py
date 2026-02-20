@@ -66,7 +66,7 @@ class FullMRIModel(torch.nn.Module):
 
         # Process priority head
         priority_out = self.priorityhead(clip_embed)
-        priority_levels = ['none', 'low', 'medium', 'high']
+        priority_levels = ['none', 'low', 'high']
         retdict['priority'] = {
             level: priority_out[:, i]
             for i, level in enumerate(priority_levels)
