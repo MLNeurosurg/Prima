@@ -19,6 +19,42 @@ This is the official code repository for paper submission "[Learning neuroimagin
 }
 ```
 
+## Model Weights
+
+Download the following weights and place them as indicated in the [end-to-end inference pipeline](end-to-end_inference_pipeline) config (see [configs](configs) for examples).
+
+| Model | Download |
+|-------|----------|
+| **Full PRIMA model** (`primafullmodel107.pt`) | [![Download Full Model](https://img.shields.io/badge/Download-Full_Model_Weights-4285F4?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/file/d/119kKMcdk1GPww69IQAf6JkXuNMIEEAIk/view) |
+| **Tokenizer (VQ-VAE)** (`vqvae_model_step16799.pth`) | [![Download Tokenizer](https://img.shields.io/badge/Download-Tokenizer_Weights-34A853?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/file/d/11EitVfPVXmdPSJviQQ5ZKasFNbQqD5Bt/view?usp=drive_link) |
+
+- **Full model:** use in your PRIMA config as `full_model_ckpt` (e.g. in `prima_config.json` or `sample_prima_config.json`).
+- **Tokenizer:** place the checkpoint path in your tokenizer config’s `vqvae_config.ckpt_path` (e.g. in `config.json` under the tokenizer model directory).
+
+### Quick start: download weights and run a test
+
+1. **Set up a virtual environment** and install dependencies from the repo root:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+2. **Download the model weights** (requires `gdown`, which is in `requirements.txt`):
+
+```bash
+python tools/download_models_and_setup_test.py
+```
+
+3. **Place a DICOM study** folder under `test/test_mri_case/` (e.g. `test/test_mri_case/MY_STUDY_ID/`), set `study_dir` in `configs/test_pipeline_config.yaml` to that path, then run the pipeline:
+
+```bash
+python end-to-end_inference_pipeline/pipeline.py --config configs/test_pipeline_config.yaml
+```
+
+Predictions will be written to `test/test_output/{study_id}_predictions.json` (e.g. `MY_STUDY_ID_predictions.json`).
+
 ## Overview
 
 ![1738022426126-795fc098-7897-47f6-941d-8724d4c5638a_1](https://github.com/user-attachments/assets/be841dcb-a446-4e00-b33d-17901c78557f)

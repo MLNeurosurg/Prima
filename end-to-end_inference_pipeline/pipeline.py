@@ -444,9 +444,10 @@ class Pipeline:
                     return obj
             
             predictions_serializable = tensor_to_serializable(predictions)
-            
-            # Save predictions (resolve to absolute so path is unambiguous)
-            output_path = (self.output_dir / 'predictions.json').resolve()
+
+            # Save predictions with study_id prefix (study_id = last component of study_dir)
+            study_id = Path(self.config.study_dir).name or "study"
+            output_path = (self.output_dir / f"{study_id}_predictions.json").resolve()
             with open(output_path, 'w') as f:
                 json.dump(predictions_serializable, f, indent=2)
             self.logger.info(f'Predictions saved to {output_path}')
