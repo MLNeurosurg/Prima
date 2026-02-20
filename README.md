@@ -30,6 +30,7 @@ Download the following weights and place them as indicated in the [end-to-end in
 
 - **Full model:** use in your PRIMA config as `full_model_ckpt` (e.g. in `prima_config.json` or `sample_prima_config.json`).
 - **Tokenizer:** place the checkpoint path in your tokenizer config’s `vqvae_config.ckpt_path` (e.g. in `config.json` under the tokenizer model directory).
+- **Note:** The priority model within the full model ckpt has been corrected on 2/19/2026. For best performance, please redownload the full model checkpoint above if you downloaded it before 2/19/2026.
 
 ### Quick start: download weights and run a test
 
