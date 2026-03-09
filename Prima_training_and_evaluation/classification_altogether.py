@@ -4,7 +4,9 @@ import sys, os, csv
 sys.path.append(os.getcwd())
 from tqdm import tqdm
 from sklearn import metrics
-from dataset import collatevisualhash, collateembhash, MrDataset
+from dataset import MrDataset
+from dataset import collate_visual_hash as collatevisualhash
+from dataset import collate_emb_hash as collateembhash
 
 from utils import getbestthresh
 import numpy as np
