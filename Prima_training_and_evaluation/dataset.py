@@ -168,6 +168,16 @@ def collate_fn(max_tokens: int, patchify: Callable, device: str,
     return collate
 
 
+def collateembhash(lis):
+    ts = []
+    ls = []
+    hs = []
+    for t,l,h in lis:
+        ts.append(t)
+        ls.append(l)
+        hs.append(h)
+    return torch.stack(ts,dim=0),torch.LongTensor(ls),hs
+
 def collate_visual_hash(patchify: Callable, device: str, 
                        use_labels: bool = False, 
                        put_to_device: bool = False) -> Callable:
@@ -742,6 +752,7 @@ class SerieNameCLIPDataset(torch.utils.data.Dataset):
             
         hash_series = f"{study_path.split('/')[-1]}|{serie}"
         return embs, emb_pos, chartovec(serie), hash_series, orientation, pos_map
+
 
 
 
